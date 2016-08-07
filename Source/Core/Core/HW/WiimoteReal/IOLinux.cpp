@@ -6,8 +6,10 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 #include <bluetooth/l2cap.h>
+#include <sys/eventfd.h>
 #include <unistd.h>
 
+#include "Common/Assert.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Core/HW/WiimoteReal/IOLinux.h"
@@ -115,12 +117,124 @@ void WiimoteScannerLinux::FindWiimotes(std::vector<Wiimote*>& found_wiimotes, Wi
   }
 }
 
+WiimoteScannerLinuxIncoming::WiimoteScannerLinuxIncoming()
+{
+  if (m_thread_running.IsSet())
+    return;
+
+  const int device_id = hci_get_route(nullptr);
+  if (device_id < 0)
+    return;
+  m_device_sock = hci_open_dev(device_id);
+  if (m_device_sock == -1)
+  {
+    ERROR_LOG(WIIMOTE, "Unable to open Bluetooth device.");
+    return;
+  }
+
+  m_wakeup_eventfd = eventfd(0, 0);
+  _assert_msg_(WIIMOTE, m_wakeup_eventfd != -1, "Couldn't create eventfd.");
+  m_thread_running.Set();
+  m_thread = std::thread(&WiimoteScannerLinuxIncoming::ListenerThreadFunc, this);
+}
+
+WiimoteScannerLinuxIncoming::~WiimoteScannerLinuxIncoming()
+{
+  if (m_thread_running.TestAndClear())
+  {
+    // Write something to efd so that select() stops blocking.
+    uint64_t value = 1;
+    write(m_wakeup_eventfd, &value, sizeof(uint64_t));
+    m_thread.join();
+  }
+  if (m_device_sock != -1)
+    close(m_device_sock);
+}
+
+void WiimoteScannerLinuxIncoming::ListenerThreadFunc()
+{
+  // Input channel
+  sockaddr_l2 addr;
+  addr.l2_family = AF_BLUETOOTH;
+  addr.l2_psm = htobs(WM_INPUT_CHANNEL);
+  const int int_listen_fd = socket(AF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
+  if (bind(int_listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == -1)
+  {
+    WARN_LOG(WIIMOTE, "Failed to listen for incoming connections from Wiimotes "
+                      "(likely a permission issue). This feature will be disabled.");
+    return;
+  }
+  listen(int_listen_fd, 1);
+  // Output channel
+  addr.l2_psm = htobs(WM_OUTPUT_CHANNEL);
+  const int cmd_listen_fd = socket(AF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
+  bind(cmd_listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+  listen(cmd_listen_fd, 1);
+
+  while (m_thread_running.IsSet())
+  {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(m_wakeup_eventfd, &fds);
+    FD_SET(int_listen_fd, &fds);
+    FD_SET(cmd_listen_fd, &fds);
+
+    const int ret = select(cmd_listen_fd + 1, &fds, nullptr, nullptr, nullptr);
+    if (ret < 1 || FD_ISSET(m_wakeup_eventfd, &fds))
+      continue;
+
+    sockaddr_l2 client_addr;
+    socklen_t len = sizeof(client_addr);
+    const int cmd_sock = accept(cmd_listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &len);
+    const int int_sock = accept(int_listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &len);
+
+    char name[255] = {};
+    if (hci_read_remote_name(m_device_sock, &client_addr.l2_bdaddr, sizeof(name), name, 1000) < 0)
+    {
+      ERROR_LOG(WIIMOTE, "Failed to request name, ignoring incoming connection");
+      close(cmd_sock);
+      close(int_sock);
+      continue;
+    }
+
+    if (IsValidBluetoothName(name))
+    {
+      std::lock_guard<std::mutex> lk(m_devices_mutex);
+      char bdaddr_str[18] = {};
+      ba2str(&client_addr.l2_bdaddr, bdaddr_str);
+      if (IsBalanceBoardName(name))
+      {
+        NOTICE_LOG(WIIMOTE, "Detected a Balance Board incoming connection (%s)", bdaddr_str);
+        if (m_found_board != nullptr)
+          delete m_found_board;
+        m_found_board = new WiimoteLinux(client_addr.l2_bdaddr, cmd_sock, int_sock);
+      }
+      else
+      {
+        NOTICE_LOG(WIIMOTE, "Detected a Wiimote incoming connection (%s)", bdaddr_str);
+        m_found_wiimotes.emplace_back(new WiimoteLinux(client_addr.l2_bdaddr, cmd_sock, int_sock));
+      }
+    }
+  }
+  close(int_listen_fd);
+  close(cmd_listen_fd);
+}
+
+void WiimoteScannerLinuxIncoming::FindWiimotes(std::vector<Wiimote*>& wiimotes, Wiimote*& board)
+{
+  std::lock_guard<std::mutex> lk(m_devices_mutex);
+
+  for (auto* wiimote : m_found_wiimotes)
+    wiimotes.emplace_back(wiimote);
+  m_found_wiimotes.clear();
+
+  board = m_found_board;
+  m_found_board = nullptr;
+}
+
 WiimoteLinux::WiimoteLinux(bdaddr_t bdaddr) : Wiimote(), m_bdaddr(bdaddr)
 {
   m_really_disconnect = true;
-
-  m_cmd_sock = -1;
-  m_int_sock = -1;
 
   int fds[2];
   if (pipe(fds))
@@ -130,6 +244,12 @@ WiimoteLinux::WiimoteLinux(bdaddr_t bdaddr) : Wiimote(), m_bdaddr(bdaddr)
   }
   m_wakeup_pipe_w = fds[1];
   m_wakeup_pipe_r = fds[0];
+}
+
+WiimoteLinux::WiimoteLinux(bdaddr_t bdaddr, int cmd_sock, int int_sock) : WiimoteLinux(bdaddr)
+{
+  m_cmd_sock = cmd_sock;
+  m_int_sock = int_sock;
 }
 
 WiimoteLinux::~WiimoteLinux()
@@ -142,6 +262,9 @@ WiimoteLinux::~WiimoteLinux()
 // Connect to a Wiimote with a known address.
 bool WiimoteLinux::ConnectInternal()
 {
+  if (m_int_sock != -1 && m_cmd_sock != -1)
+    return true;
+
   sockaddr_l2 addr = {};
   addr.l2_family = AF_BLUETOOTH;
   addr.l2_bdaddr = m_bdaddr;
@@ -212,7 +335,7 @@ int WiimoteLinux::IORead(u8* buf)
   FD_SET(m_int_sock, &fds);
   FD_SET(m_wakeup_pipe_r, &fds);
 
-  if (select(m_int_sock + 1, &fds, nullptr, nullptr, nullptr) == -1)
+  if (select(std::max(m_int_sock, m_wakeup_pipe_r) + 1, &fds, nullptr, nullptr, nullptr) == -1)
   {
     ERROR_LOG(WIIMOTE, "Unable to select Wiimote %i input socket.", m_index + 1);
     return -1;
