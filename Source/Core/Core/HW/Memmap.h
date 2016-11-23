@@ -35,6 +35,7 @@ extern u8* m_pRAM;
 extern u8* m_pEXRAM;
 extern u8* m_pL1Cache;
 extern u8* m_pFakeVMEM;
+extern u8* m_pBootVec;
 
 enum
 {
@@ -52,6 +53,8 @@ enum
   IO_SIZE = 0x00010000,
   EXRAM_SIZE = 0x04000000,
   EXRAM_MASK = EXRAM_SIZE - 1,
+  BOOTVEC_SIZE = 0x1000,
+  BOOTVEC_MASK = BOOTVEC_SIZE - 1,
 };
 
 // MMIO mapping object.

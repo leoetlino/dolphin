@@ -53,6 +53,7 @@ u8* m_pRAM;
 u8* m_pL1Cache;
 u8* m_pEXRAM;
 u8* m_pFakeVMEM;
+u8* m_pBootVec;
 
 // MMIO mapping object.
 std::unique_ptr<MMIO::Mapping> mmio_mapping;

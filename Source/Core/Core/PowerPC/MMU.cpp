@@ -242,6 +242,13 @@ static T ReadFromHardware(u32 em_address)
       return (T)Memory::mmio_mapping->Read<typename std::make_unsigned<T>::type>(em_address);
   }
 
+  if ((em_address >= 0xFFF00000) && (em_address < (0xFFF00000 + Memory::BOOTVEC_SIZE)))
+  {
+    printf("%08x %08x\n", em_address,
+           (u32)bswap((*(const T*)&Memory::m_pBootVec[em_address & Memory::BOOTVEC_MASK])));
+    return bswap((*(const T*)&Memory::m_pBootVec[em_address & Memory::BOOTVEC_MASK]));
+  }
+
   PanicAlert("Unable to resolve read address %x PC %x", em_address, PC);
   return 0;
 }
@@ -643,6 +650,9 @@ static bool IsRAMAddress(u32 address, bool translate)
   else if (Memory::m_pEXRAM && segment == 0x1 && (address & 0x0FFFFFFF) < Memory::EXRAM_SIZE)
     return true;
   else if (Memory::m_pFakeVMEM && ((address & 0xFE000000) == 0x7E000000))
+    return true;
+  else if (Memory::m_pBootVec && segment == 0xf && (address & 0x0FF00000) == 0x0FF00000 &&
+           (address & 0xFFFFF) < Memory::BOOTVEC_SIZE)
     return true;
   else if (segment == 0xE && (address < (0xE0000000 + Memory::L1_CACHE_SIZE)))
     return true;
