@@ -41,6 +41,11 @@ enum
   GPIOB_OUT = 0xc0,
   GPIOB_DIR = 0xc4,
   GPIOB_IN = 0xc8,
+  GPIOB_INTFLAG = 0xd0,
+  GPIO_OUT = 0xe0,
+  GPIO_DIR = 0xe4,
+  GPIO_IN = 0xe8,
+  GPIO_INTFLAG = 0xf0,
 
   UNK_180 = 0x180,
   UNK_1CC = 0x1cc,
@@ -161,14 +166,14 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
 
   mmio->Register(base | IPC_ARMMSG, MMIO::DirectRead<u32>(&arm_msg), MMIO::InvalidWrite<u32>());
 
-  mmio->Register(base | PPC_IRQFLAG, MMIO::InvalidRead<u32>(),
+  mmio->Register(base | PPC_IRQFLAG, MMIO::ComplexRead<u32>([](u32) { return ppc_irq_flags; }),
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
                    ppc_irq_flags &= ~val;
                    HLE::Update();
                    CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
                  }));
 
-  mmio->Register(base | PPC_IRQMASK, MMIO::InvalidRead<u32>(),
+  mmio->Register(base | PPC_IRQMASK, MMIO::ComplexRead<u32>([](u32) { return ppc_irq_masks; }),
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
                    ppc_irq_masks = val;
                    if (ppc_irq_masks & INT_CAUSE_IPC_BROADWAY)  // wtf?
@@ -185,6 +190,10 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   mmio->Register(base | VISOLID, MMIO::InvalidRead<u32>(), MMIO::Nop<u32>());
   mmio->Register(base | GPIOB_DIR, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | GPIOB_IN, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
+  mmio->Register(base | GPIOB_INTFLAG, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
+  mmio->Register(base | GPIO_DIR, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
+  mmio->Register(base | GPIO_IN, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
+  mmio->Register(base | GPIO_INTFLAG, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | UNK_180, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | UNK_1CC, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | UNK_1D0, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
