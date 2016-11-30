@@ -187,6 +187,7 @@ void Init()
     if ((flags & region.flags) != region.flags)
       continue;
     region.shm_position = mem_size;
+    INFO_LOG(MEMMAP, "Memory: 0x%08x at off 0x%08x", region.physical_address, mem_size);
     mem_size += region.size;
   }
   g_arena.GrabSHMSegment(mem_size);
