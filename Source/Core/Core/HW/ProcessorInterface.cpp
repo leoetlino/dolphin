@@ -86,7 +86,7 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
 {
   mmio->Register(base | PI_INTERRUPT_CAUSE, MMIO::DirectRead<u32>(&m_InterruptCause),
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
-                   m_InterruptCause &= ~val;
+                   m_InterruptCause &= ~(val & ~INT_CAUSE_RST_BUTTON);
                    UpdateException();
                  }));
 
