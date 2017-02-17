@@ -15,6 +15,7 @@
 #include "Core/HW/Memmap.h"
 #include "Core/HW/ProcessorInterface.h"
 #include "Core/HW/WII_IPC.h"
+#include "Core/IOS/Device.h"
 #include "Core/IOS/IPC.h"
 #include "Core/PowerPC/PowerPC.h"
 
@@ -232,6 +233,13 @@ static void PollSocket(u64 userdata, s64 cyclesLate)
       break;
     case 12:
       ctrl.arm(msg[1]);
+      INFO_LOG(WII_IPC, "ARMCTRL: %08x | %08x [Y1:%i Y2:%i X1:%i X2:%i]", arm_msg, msg[1], ctrl.Y1,
+               ctrl.Y2, ctrl.X1, ctrl.X2);
+      if (ctrl.Y1)
+      {
+        NOTICE_LOG(WII_IPC, "fd = %u, ret = %d", Memory::Read_U32(arm_msg),
+                   static_cast<s32>(Memory::Read_U32(arm_msg + 4)));
+      }
       CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
       break;
     case 0x10000:
@@ -315,6 +323,71 @@ void Shutdown()
   socket_fd = -1;
 }
 
+void PPCCtrlHandler(u32, u32 val)
+{
+  u32 msg[2] = {4, val};
+  SendAll(socket_fd, msg, 8);
+  ctrl.ppc(val);
+
+  INFO_LOG(WII_IPC, "PPCCTRL: %08x | %08x [Y1:%i Y2:%i X1:%i X2:%i]", ppc_msg, msg[1], ctrl.Y1,
+           ctrl.Y2, ctrl.X1, ctrl.X2);
+  if (ctrl.X1)
+  {
+    INFO_LOG(WII_IPC, "\033[22;34m\n%s\033[0m", HexDump(Memory::GetPointer(ppc_msg), 0x40).c_str());
+
+    const HLE::Request request{ppc_msg};
+    switch (request.command)
+    {
+    case HLE::IPC_CMD_OPEN:
+    {
+      const HLE::OpenRequest open{ppc_msg};
+      WARN_LOG(WII_IPC, "open(name=%s, mode=%u)", open.path.c_str(), open.flags);
+      break;
+    }
+    case HLE::IPC_CMD_CLOSE:
+    {
+      WARN_LOG(WII_IPC, "close(fd=%u)", request.fd);
+      break;
+    }
+    case HLE::IPC_CMD_READ:
+    case HLE::IPC_CMD_WRITE:
+    {
+      const HLE::ReadWriteRequest rw{ppc_msg};
+      WARN_LOG(WII_IPC, "%s(fd=%u, buffer=%08x, size=%u)",
+               request.command == HLE::IPC_CMD_READ ? "read" : "write", request.fd, rw.buffer,
+               rw.size);
+      break;
+    }
+    case HLE::IPC_CMD_SEEK:
+    {
+      const HLE::SeekRequest seek{ppc_msg};
+      WARN_LOG(WII_IPC, "seek(fd=%u, whence=%u, where=%u)", request.fd, seek.mode, seek.offset);
+      break;
+    }
+    case HLE::IPC_CMD_IOCTL:
+    {
+      const HLE::IOCtlRequest ioctl{ppc_msg};
+      WARN_LOG(WII_IPC, "ioctl(fd=%u, request=%x, in=%08x, in_size=%u, out=%08x, out_size=%u)",
+               request.fd, ioctl.request, ioctl.buffer_in, ioctl.buffer_in_size, ioctl.buffer_out,
+               ioctl.buffer_out_size);
+      break;
+    }
+    case HLE::IPC_CMD_IOCTLV:
+    {
+      const HLE::IOCtlVRequest ioctlv{ppc_msg};
+      WARN_LOG(WII_IPC, "ioctlv(fd=%u, request=%x, in_count=%zu, out_count=%zu)", request.fd,
+               ioctlv.request, ioctlv.in_vectors.size(), ioctlv.io_vectors.size());
+      break;
+    }
+    default:
+      ERROR_LOG(WII_IPC, "Unknown IPC command");
+    }
+    // HLE::EnqueueRequest(ppc_msg);
+  }
+  // HLE::Update();
+  CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
+}
+
 void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
 {
   mmio->Register(base | IPC_PPCMSG, MMIO::ComplexRead<u32>([](u32) { return ppc_msg; }),
@@ -322,18 +395,11 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    u32 msg[2] = {0, val};
                    SendAll(socket_fd, msg, 8);
                    ppc_msg = val;
+                   INFO_LOG(WII_IPC, "PPCMSG: %08x", ppc_msg);
                  }));
 
   mmio->Register(base | IPC_PPCCTRL, MMIO::ComplexRead<u32>([](u32) { return ctrl.ppc(); }),
-                 MMIO::ComplexWrite<u32>([](u32, u32 val) {
-                   u32 msg[2] = {4, val};
-                   SendAll(socket_fd, msg, 8);
-                   ctrl.ppc(val);
-                   // if (ctrl.X1)
-                   //   HLE::EnqueueRequest(ppc_msg);
-                   // HLE::Update();
-                   CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
-                 }));
+                 MMIO::ComplexWrite<u32>(PPCCtrlHandler));
 
   mmio->Register(base | IPC_ARMMSG, MMIO::DirectRead<u32>(&arm_msg), MMIO::InvalidWrite<u32>());
 
@@ -374,11 +440,13 @@ static void UpdateInterrupts(u64 userdata, s64 cyclesLate)
 {
   if ((ctrl.Y1 & ctrl.IY1) || (ctrl.Y2 & ctrl.IY2))
   {
+    printf("INT_CAUSE_IPC_BROADWAY\n");
     ppc_irq_flags |= INT_CAUSE_IPC_BROADWAY;
   }
 
   if ((ctrl.X1 & ctrl.IX1) || (ctrl.X2 & ctrl.IX2))
   {
+    printf("INT_CAUSE_IPC_STARLET\n");
     ppc_irq_flags |= INT_CAUSE_IPC_STARLET;
   }
 
