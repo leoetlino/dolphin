@@ -313,8 +313,8 @@ void Clear()
     memset(m_pL1Cache, 0, L1_CACHE_SIZE);
   if (m_pFakeVMEM)
     memset(m_pFakeVMEM, 0, FAKEVMEM_SIZE);
-  if (m_pEXRAM)
-    memset(m_pEXRAM, 0, EXRAM_SIZE);
+  // if (m_pEXRAM)
+  //   memset(m_pEXRAM, 0, EXRAM_SIZE);
 }
 
 static inline u8* GetPointerForRange(u32 address, size_t size)

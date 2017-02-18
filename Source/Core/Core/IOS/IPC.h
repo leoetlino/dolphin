@@ -79,6 +79,9 @@ void Update();
 // Update Devices
 void UpdateDevices();
 
+// Remove a device (intended for use from IOS LLE)
+void RemoveDevice(u32 fd);
+
 void UpdateWantDeterminism(bool new_want_determinism);
 
 void ExecuteCommand(u32 address);
@@ -86,6 +89,7 @@ void ExecuteCommand(u32 address);
 void EnqueueRequest(u32 address);
 void EnqueueReply(const Request& request, s32 return_value, int cycles_in_future = 0,
                   CoreTiming::FromThread from = CoreTiming::FromThread::CPU);
+void DirectlyEnqueueReply(u32 address, CoreTiming::FromThread from);
 void EnqueueCommandAcknowledgement(u32 address, int cycles_in_future = 0);
 }  // namespace HLE
 }  // namespace IOS

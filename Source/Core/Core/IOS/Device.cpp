@@ -163,6 +163,12 @@ void Device::Close()
   m_is_active = false;
 }
 
+IPCCommandResult Device::Close(const Request& request)
+{
+  Close();
+  return GetDefaultReply(IPC_SUCCESS);
+}
+
 IPCCommandResult Device::Unsupported(const Request& request)
 {
   static std::map<IPCCommandType, std::string> names = {{{IPC_CMD_READ, "Read"},

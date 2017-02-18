@@ -156,6 +156,8 @@ public:
   // not by the devices themselves.
   virtual ReturnCode Open(const OpenRequest& request);
   virtual void Close();
+  virtual IPCCommandResult Open(const Request& request) { return GetDefaultReply(IPC_SUCCESS); }
+  virtual IPCCommandResult Close(const Request& request);
   virtual IPCCommandResult Seek(const SeekRequest& seek) { return Unsupported(seek); }
   virtual IPCCommandResult Read(const ReadWriteRequest& read) { return Unsupported(read); }
   virtual IPCCommandResult Write(const ReadWriteRequest& write) { return Unsupported(write); }

@@ -138,6 +138,7 @@ set(SRCS	ActionReplay.cpp
 			HW/WiimoteReal/WiimoteReal.cpp
 			HW/WiiSaveCrypted.cpp
 			IOS/Device.cpp
+			IOS/DeviceLLE.cpp
 			IOS/DeviceStub.cpp
 			IOS/IPC.cpp
 			IOS/MIOS.cpp

@@ -2,22 +2,14 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/un.h>
-#include <unistd.h>
-
+#include "Core/HW/WII_IPC.h"
 #include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/MMIO.h"
-#include "Core/HW/Memmap.h"
 #include "Core/HW/ProcessorInterface.h"
-#include "Core/HW/WII_IPC.h"
-#include "Core/IOS/Device.h"
 #include "Core/IOS/IPC.h"
-#include "Core/PowerPC/PowerPC.h"
 
 // This is the intercommunication between ARM and PPC. Currently only PPC actually uses it, because
 // of the IOS HLE
@@ -49,11 +41,6 @@ enum
   GPIOB_OUT = 0xc0,
   GPIOB_DIR = 0xc4,
   GPIOB_IN = 0xc8,
-  GPIOB_INTFLAG = 0xd0,
-  GPIO_OUT = 0xe0,
-  GPIO_DIR = 0xe4,
-  GPIO_IN = 0xe8,
-  GPIO_INTFLAG = 0xf0,
 
   UNK_180 = 0x180,
   UNK_1CC = 0x1cc,
@@ -112,10 +99,7 @@ static u32 arm_irq_masks;
 static u32 sensorbar_power;  // do we need to care about this?
 
 static CoreTiming::EventType* updateInterrupts;
-static CoreTiming::EventType* pollSocket;
 static void UpdateInterrupts(u64 = 0, s64 cyclesLate = 0);
-
-static int socket_fd;
 
 void DoState(PointerWrap& p)
 {
@@ -145,168 +129,10 @@ static void InitState()
   ppc_irq_masks |= INT_CAUSE_IPC_BROADWAY;
 }
 
-static const int IPC_RATE = 600;
-
-static int MsgPending(int s)
-{
-  int res;
-  struct timeval tv;
-  fd_set readfds;
-  fd_set excfds;
-
-  tv.tv_sec = 0;
-  tv.tv_usec = 0;
-  FD_ZERO(&readfds);
-  FD_SET(s, &readfds);
-  FD_ZERO(&excfds);
-  FD_SET(s, &excfds);
-
-  res = select(s + 1, &readfds, NULL, &excfds, &tv);
-  if (res == 0)
-    return 0;
-  if (res == -1)
-    return -1;
-
-  if (FD_ISSET(s, &excfds))
-    return -1;
-  if (FD_ISSET(s, &readfds))
-    return 1;
-  return -1;
-}
-
-static int SendAll(int s, void* buf, int len)
-{
-  int total = 0;
-  int bytesleft = len;
-  int n = 0;
-
-  while (total < len)
-  {
-    n = send(s, ((char*)buf) + total, bytesleft, 0);
-    if (n == -1)
-      break;
-    total += n;
-    bytesleft -= n;
-  }
-
-  return n == -1 ? -1 : 0;
-}
-
-static int RecvAll(int s, void* buf, int len)
-{
-  int total = 0;
-  int bytesleft = len;
-  int n = 0;
-
-  while (total < len)
-  {
-    n = recv(s, ((char*)buf) + total, bytesleft, 0);
-    if (n == -1)
-      break;
-    if (n == 0)
-    {
-      n = -1;
-      break;
-    }
-    total += n;
-    bytesleft -= n;
-  }
-
-  return n == -1 ? -1 : 0;
-}
-
-static void PollSocket(u64 userdata, s64 cyclesLate)
-{
-  while (MsgPending(socket_fd) == 1)
-  {
-    u32 msg[2];
-    if (RecvAll(socket_fd, msg, 8) < 0)
-    {
-      ERROR_LOG(WII_IPC, "Recv failed");
-      return;
-    }
-    switch (msg[0])
-    {
-    case 8:
-      ERROR_LOG(WII_IPC, "MSG: %08x %08x", msg[0], msg[1]);
-      arm_msg = msg[1];
-      break;
-    case 12:
-      ctrl.arm(msg[1]);
-      INFO_LOG(WII_IPC, "ARMCTRL: %08x | %08x [Y1:%i Y2:%i X1:%i X2:%i]", arm_msg, msg[1], ctrl.Y1,
-               ctrl.Y2, ctrl.X1, ctrl.X2);
-      if (ctrl.Y1)
-      {
-        NOTICE_LOG(WII_IPC, "fd = %u, ret = %d", Memory::Read_U32(arm_msg),
-                   static_cast<s32>(Memory::Read_U32(arm_msg + 4)));
-      }
-      CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
-      break;
-    case 0x10000:
-      ERROR_LOG(WII_IPC, "PPC state: %d", msg[1]);
-      if (msg[1])
-      {
-        MSR = 0;
-        PC = 0x3400;
-      }
-      else
-      {
-        // Put it into an infinite loop for now...
-        MSR = 0;
-        PC = 0;
-        Memory::Write_U32(0x48000000, 0x00000000);
-      }
-      break;
-    }
-  }
-  CoreTiming::ScheduleEvent(SystemTimers::GetTicksPerSecond() / IPC_RATE - cyclesLate, pollSocket);
-}
-
-#define SOCK_PATH "/tmp/dolphin_ipc"
-
-static void InitSocket()
-{
-  static struct sockaddr_un local, remote;
-  unsigned int t;
-  int len;
-
-  int asock = socket(AF_UNIX, SOCK_STREAM, 0);
-  if (asock < 0)
-  {
-    ERROR_LOG(WII_IPC, "Could not open socket");
-    return;
-  }
-  local.sun_family = AF_UNIX;
-  strcpy(local.sun_path, SOCK_PATH);
-  unlink(local.sun_path);
-  len = strlen(local.sun_path) + sizeof(local.sun_family);
-
-  if (bind(asock, (struct sockaddr*)&local, len) == -1)
-  {
-    ERROR_LOG(WII_IPC, "Could not bind socket");
-    return;
-  }
-  if (listen(asock, 1) == -1)
-  {
-    ERROR_LOG(WII_IPC, "Could not listen on socket");
-    return;
-  }
-  ERROR_LOG(WII_IPC, "Waiting for socket...");
-  t = sizeof(remote);
-  if ((socket_fd = accept(asock, (struct sockaddr*)&remote, &t)) == -1)
-  {
-    ERROR_LOG(WII_IPC, "Could not accept connection on socket");
-    return;
-  }
-  pollSocket = CoreTiming::RegisterEvent("IPCSocket", PollSocket);
-  CoreTiming::ScheduleEvent(0, pollSocket, 0);
-}
-
 void Init()
 {
   InitState();
   updateInterrupts = CoreTiming::RegisterEvent("IPCInterrupt", UpdateInterrupts);
-  InitSocket();
 }
 
 void Reset()
@@ -318,104 +144,36 @@ void Reset()
 
 void Shutdown()
 {
-  CoreTiming::RemoveEvent(pollSocket);
-  close(socket_fd);
-  socket_fd = -1;
-}
-
-void PPCCtrlHandler(u32, u32 val)
-{
-  u32 msg[2] = {4, val};
-  SendAll(socket_fd, msg, 8);
-  ctrl.ppc(val);
-
-  INFO_LOG(WII_IPC, "PPCCTRL: %08x | %08x [Y1:%i Y2:%i X1:%i X2:%i]", ppc_msg, msg[1], ctrl.Y1,
-           ctrl.Y2, ctrl.X1, ctrl.X2);
-  if (ctrl.X1)
-  {
-    INFO_LOG(WII_IPC, "\033[22;34m\n%s\033[0m", HexDump(Memory::GetPointer(ppc_msg), 0x40).c_str());
-
-    const HLE::Request request{ppc_msg};
-    switch (request.command)
-    {
-    case HLE::IPC_CMD_OPEN:
-    {
-      const HLE::OpenRequest open{ppc_msg};
-      WARN_LOG(WII_IPC, "open(name=%s, mode=%u)", open.path.c_str(), open.flags);
-      break;
-    }
-    case HLE::IPC_CMD_CLOSE:
-    {
-      WARN_LOG(WII_IPC, "close(fd=%u)", request.fd);
-      break;
-    }
-    case HLE::IPC_CMD_READ:
-    case HLE::IPC_CMD_WRITE:
-    {
-      const HLE::ReadWriteRequest rw{ppc_msg};
-      WARN_LOG(WII_IPC, "%s(fd=%u, buffer=%08x, size=%u)",
-               request.command == HLE::IPC_CMD_READ ? "read" : "write", request.fd, rw.buffer,
-               rw.size);
-      break;
-    }
-    case HLE::IPC_CMD_SEEK:
-    {
-      const HLE::SeekRequest seek{ppc_msg};
-      WARN_LOG(WII_IPC, "seek(fd=%u, whence=%u, where=%u)", request.fd, seek.mode, seek.offset);
-      break;
-    }
-    case HLE::IPC_CMD_IOCTL:
-    {
-      const HLE::IOCtlRequest ioctl{ppc_msg};
-      WARN_LOG(WII_IPC, "ioctl(fd=%u, request=%x, in=%08x, in_size=%u, out=%08x, out_size=%u)",
-               request.fd, ioctl.request, ioctl.buffer_in, ioctl.buffer_in_size, ioctl.buffer_out,
-               ioctl.buffer_out_size);
-      break;
-    }
-    case HLE::IPC_CMD_IOCTLV:
-    {
-      const HLE::IOCtlVRequest ioctlv{ppc_msg};
-      WARN_LOG(WII_IPC, "ioctlv(fd=%u, request=%x, in_count=%zu, out_count=%zu)", request.fd,
-               ioctlv.request, ioctlv.in_vectors.size(), ioctlv.io_vectors.size());
-      break;
-    }
-    default:
-      ERROR_LOG(WII_IPC, "Unknown IPC command");
-    }
-    // HLE::EnqueueRequest(ppc_msg);
-  }
-  // HLE::Update();
-  CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
 }
 
 void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
 {
-  mmio->Register(base | IPC_PPCMSG, MMIO::ComplexRead<u32>([](u32) { return ppc_msg; }),
-                 MMIO::ComplexWrite<u32>([](u32, u32 val) {
-                   u32 msg[2] = {0, val};
-                   SendAll(socket_fd, msg, 8);
-                   ppc_msg = val;
-                   INFO_LOG(WII_IPC, "PPCMSG: %08x", ppc_msg);
-                 }));
+  mmio->Register(base | IPC_PPCMSG, MMIO::InvalidRead<u32>(), MMIO::DirectWrite<u32>(&ppc_msg));
 
   mmio->Register(base | IPC_PPCCTRL, MMIO::ComplexRead<u32>([](u32) { return ctrl.ppc(); }),
-                 MMIO::ComplexWrite<u32>(PPCCtrlHandler));
+                 MMIO::ComplexWrite<u32>([](u32, u32 val) {
+                   ctrl.ppc(val);
+                   if (ctrl.X1)
+                     HLE::EnqueueRequest(ppc_msg);
+                   HLE::Update();
+                   CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
+                 }));
 
   mmio->Register(base | IPC_ARMMSG, MMIO::DirectRead<u32>(&arm_msg), MMIO::InvalidWrite<u32>());
 
-  mmio->Register(base | PPC_IRQFLAG, MMIO::ComplexRead<u32>([](u32) { return ppc_irq_flags; }),
+  mmio->Register(base | PPC_IRQFLAG, MMIO::InvalidRead<u32>(),
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
                    ppc_irq_flags &= ~val;
                    HLE::Update();
                    CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
                  }));
 
-  mmio->Register(base | PPC_IRQMASK, MMIO::ComplexRead<u32>([](u32) { return ppc_irq_masks; }),
+  mmio->Register(base | PPC_IRQMASK, MMIO::InvalidRead<u32>(),
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
                    ppc_irq_masks = val;
                    // if (ppc_irq_masks & INT_CAUSE_IPC_BROADWAY)  // wtf?
                    //   Reset();
-                   // HLE::Update();
+                   HLE::Update();
                    CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
                  }));
 
@@ -427,10 +185,6 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   mmio->Register(base | VISOLID, MMIO::InvalidRead<u32>(), MMIO::Nop<u32>());
   mmio->Register(base | GPIOB_DIR, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | GPIOB_IN, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
-  mmio->Register(base | GPIOB_INTFLAG, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
-  mmio->Register(base | GPIO_DIR, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
-  mmio->Register(base | GPIO_IN, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
-  mmio->Register(base | GPIO_INTFLAG, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | UNK_180, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | UNK_1CC, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
   mmio->Register(base | UNK_1D0, MMIO::Constant<u32>(0), MMIO::Nop<u32>());
@@ -440,13 +194,11 @@ static void UpdateInterrupts(u64 userdata, s64 cyclesLate)
 {
   if ((ctrl.Y1 & ctrl.IY1) || (ctrl.Y2 & ctrl.IY2))
   {
-    printf("INT_CAUSE_IPC_BROADWAY\n");
     ppc_irq_flags |= INT_CAUSE_IPC_BROADWAY;
   }
 
   if ((ctrl.X1 & ctrl.IX1) || (ctrl.X2 & ctrl.IX2))
   {
-    printf("INT_CAUSE_IPC_STARLET\n");
     ppc_irq_flags |= INT_CAUSE_IPC_STARLET;
   }
 

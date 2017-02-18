@@ -39,6 +39,7 @@
 #include "Core/HW/WII_IPC.h"
 #include "Core/IOS/DI/DI.h"
 #include "Core/IOS/Device.h"
+#include "Core/IOS/DeviceLLE.h"
 #include "Core/IOS/DeviceStub.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/FS/FS.h"
@@ -590,6 +591,7 @@ void Init()
 {
   s_event_enqueue = CoreTiming::RegisterEvent("IPCEvent", EnqueueEvent);
   s_event_sdio_notify = CoreTiming::RegisterEvent("SDIO_EventNotify", SDIO_EventNotify_CPUThread);
+  LLE::Init();
 }
 
 void Reset(const bool clear_devices)
@@ -615,11 +617,14 @@ void Reset(const bool clear_devices)
   s_reply_queue.clear();
 
   s_last_reply_time = 0;
+
+  LLE::Reset();
 }
 
 void Shutdown()
 {
   Reset(true);
+  LLE::Shutdown();
 }
 
 constexpr u64 BC_TITLE_ID = 0x0000000100000100;
@@ -798,6 +803,13 @@ void DoState(PointerWrap& p)
   }
 }
 
+void RemoveDevice(u32 device_fd)
+{
+  if (device_fd >= IPC_MAX_FDS)
+    return;
+  s_fdmap[device_fd] = nullptr;
+}
+
 static std::shared_ptr<Device::Device> GetUnusedESDevice()
 {
   const auto iterator = std::find_if(std::begin(s_es_handles), std::end(s_es_handles),
@@ -817,6 +829,16 @@ static s32 OpenDevice(const OpenRequest& request)
   }
 
   std::shared_ptr<Device::Device> device;
+
+  if (request.path.find("/dev/usb") != 0 && request.path.find("/dev/net") != 0 &&
+      request.path.find("/dev/sdio") != 0)
+  {
+    s_fdmap[new_fd] = std::make_shared<Device::LLE>(new_fd, request.path);
+    return new_fd;
+  }
+
+  ERROR_LOG(IOS, "     HLE: %s", request.path.c_str());
+
   if (request.path == "/dev/es")
   {
     device = GetUnusedESDevice();
@@ -855,6 +877,10 @@ static IPCCommandResult HandleCommand(const Request& request)
   {
     OpenRequest open_request{request.address};
     const s32 new_fd = OpenDevice(open_request);
+
+    if (new_fd >= 0 && !s_fdmap[new_fd]->Open(request).send_reply)
+      return Device::Device::GetNoReply();
+
     return Device::Device::GetDefaultReply(new_fd);
   }
 
@@ -866,8 +892,7 @@ static IPCCommandResult HandleCommand(const Request& request)
   {
   case IPC_CMD_CLOSE:
     s_fdmap[request.fd].reset();
-    device->Close();
-    return Device::Device::GetDefaultReply(IPC_SUCCESS);
+    return device->Close(request);
   case IPC_CMD_READ:
     return device->Read(ReadWriteRequest{request.address});
   case IPC_CMD_WRITE:
@@ -915,6 +940,11 @@ void EnqueueReply(const Request& request, const s32 return_value, int cycles_in_
   // IOS also overwrites the command type with the reply type.
   Memory::Write_U32(IPC_REPLY, request.address);
   CoreTiming::ScheduleEvent(cycles_in_future, s_event_enqueue, request.address, from);
+}
+
+void DirectlyEnqueueReply(u32 address, CoreTiming::FromThread from)
+{
+  CoreTiming::ScheduleEvent(0, s_event_enqueue, address, from);
 }
 
 void EnqueueCommandAcknowledgement(u32 address, int cycles_in_future)
