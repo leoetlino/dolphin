@@ -32,6 +32,7 @@ public:
 
   void SendRequest(u32 ppc_msg, std::function<void()> callback = {});
   void SendAck();
+  void SetOnIOSAckCallback(std::function<void()> callback) { m_on_ack_callback = callback; }
   bool IsPPCAlive() const { return m_ppc_alive; }
 private:
   void InitSocket();
@@ -45,6 +46,7 @@ private:
 
   std::mutex m_requests_mutex;
   std::map<u32, std::function<void()>> m_requests;
+  std::function<void()> m_on_ack_callback;
 };
 
 SkyeyeIPC::SkyeyeIPC()
@@ -101,6 +103,9 @@ SkyeyeIPC::SkyeyeIPC()
       case 2:
       {
         WARN_LOG(IOS, "IOS ack");
+        SendAck();
+        if (m_on_ack_callback)
+          m_on_ack_callback();
         break;
       }
       case 3:  // MSG_STATUS
@@ -288,6 +293,35 @@ IPCCommandResult LLE::IOCtl(const IOCtlRequest& request)
 
 IPCCommandResult LLE::IOCtlV(const IOCtlVRequest& request)
 {
+  if (m_name == "/dev/es")
+  {
+    if (request.request == 0x8)
+    {
+      if (Memory::Read_U64(request.in_vectors[0].address) == 0x000000100000009)
+      {
+        WARN_LOG(IOS, "Detected attempt to launch IOS9; forcing IOS11");
+        Memory::Write_U64(0x00000010000000b, request.in_vectors[0].address);
+      }
+      Reload(Memory::Read_U64(request.in_vectors[0].address));
+      SendRequest(request.address);
+      s_skyeye->SetOnIOSAckCallback([&request]() {
+        s_skyeye->SetOnIOSAckCallback(nullptr);
+        EnqueueCommandAcknowledgement(request.address, 0);
+      });
+      return GetNoReply();
+    }
+    if (request.request == 0x12 || request.request == 0x13)
+    {
+      if (Memory::Read_U64(request.in_vectors[0].address) == 0x000000100000009)
+      {
+        WARN_LOG(IOS, "Detected attempt to get ticket views for IOS9; forcing IOS11");
+        Memory::Write_U64(0x00000010000000b, request.in_vectors[0].address);
+        SendRequest(request.address);
+        return GetNoReply();
+      }
+    }
+  }
+
   WARN_LOG(WII_IPC, "ioctlv(fd=%u (%s), request=%x, in_count=%zu, out_count=%zu)", request.fd,
            m_name.c_str(), request.request, request.in_vectors.size(), request.io_vectors.size());
   SendRequest(request.address);
