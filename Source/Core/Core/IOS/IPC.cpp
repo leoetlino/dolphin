@@ -831,7 +831,7 @@ static s32 OpenDevice(const OpenRequest& request)
   std::shared_ptr<Device::Device> device;
 
   if (request.path.find("/dev/usb") != 0 && request.path.find("/dev/net") != 0 &&
-      request.path.find("/dev/sdio") != 0)
+      request.path.find("/dev/sdio") != 0 && request.path != "/dev/di")
   {
     s_fdmap[new_fd] = std::make_shared<Device::LLE>(new_fd, request.path);
     return new_fd;
