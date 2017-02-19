@@ -16,7 +16,7 @@
 #include "Common/Logging/Log.h"
 #include "Common/NonCopyable.h"
 
-#define MAX_MSGLEN 1024
+#define MAX_MSGLEN 32768
 
 // pure virtual interface
 class LogListener
