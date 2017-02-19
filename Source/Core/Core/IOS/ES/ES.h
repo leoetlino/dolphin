@@ -51,8 +51,7 @@ public:
   // This should only be cleared on power reset
   static std::string m_ContentFile;
 
-private:
-  enum
+  enum ESIoctl
   {
     IOCTL_ES_ADDTICKET = 0x01,
     IOCTL_ES_ADDTITLESTART = 0x02,
@@ -114,7 +113,7 @@ private:
     IOCTL_ES_CHECKKOREAREGION = 0x45,
   };
 
-  enum EErrorCodes
+  enum ESErrorCodes
   {
     ES_INVALID_TMD = -106,  // or access denied
     ES_READ_LESS_DATA_THAN_EXPECTED = -1009,
@@ -130,6 +129,7 @@ private:
     ES_HASH_SIZE_WRONG = -2014,  // HASH !=20
   };
 
+private:
   struct SContentAccess
   {
     u32 m_Position;
