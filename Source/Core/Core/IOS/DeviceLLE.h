@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 
 #include "Common/CommonTypes.h"
@@ -23,6 +24,8 @@ namespace HLE
 {
 namespace Device
 {
+struct RequestData;
+
 class LLE : public Device
 {
 public:
@@ -37,8 +40,15 @@ public:
   IPCCommandResult IOCtlV(const IOCtlVRequest& request) override;
 
 private:
-  void SendRequest(u32 address);
+  IPCCommandResult ReadWrite(const ReadWriteRequest& request);
 
+  template <typename T>
+  void CompareReplies(const T& request, const RequestData& original_data,
+                      std::function<IPCCommandResult()> hle_handler) const;
+
+  void SendRequest(u32 address, std::function<void()> callback = nullptr);
+
+  std::shared_ptr<Device> m_hle_device;
   s32 m_fd = -1;
 };
 }  // namespace Device
