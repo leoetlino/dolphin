@@ -379,7 +379,11 @@ IPCCommandResult FS::DeleteFile(const IOCtlRequest& request)
   }
 
   std::string Filename = BuildFilename(wii_path);
+  if (!File::Exists(Filename))
+    return GetFSReply(FS_ENOENT);
+
   Offset += 64;
+
   if (File::Delete(Filename))
   {
     INFO_LOG(IOS_FILEIO, "FS: DeleteFile %s", Filename.c_str());
@@ -391,6 +395,7 @@ IPCCommandResult FS::DeleteFile(const IOCtlRequest& request)
   else
   {
     WARN_LOG(IOS_FILEIO, "FS: DeleteFile %s - failed!!!", Filename.c_str());
+    return GetFSReply(FS_ENOENT);
   }
 
   return GetFSReply(IPC_SUCCESS);
@@ -641,6 +646,7 @@ IPCCommandResult FS::GetUsage(const IOCtlVRequest& request)
     fsBlocks = 0;
     iNodes = 0;
     WARN_LOG(IOS_FILEIO, "FS: fsBlock failed, cannot find directory: %s", path.c_str());
+    return GetFSReply(FS_ENOENT);
   }
 
   Memory::Write_U32(fsBlocks, request.io_vectors[0].address);

@@ -498,6 +498,10 @@ IPCCommandResult LLE::IOCtlV(const IOCtlVRequest& request)
            m_name.c_str(), request.request, request.in_vectors.size(), request.io_vectors.size());
   const RequestData original_data{request};
   SendRequest(request.address, [this, request, original_data]() {
+    // Too different in Dolphin because we're not using a real NAND. Just ignore it for now.
+    if (m_name == "/dev/fs" && request.request == 0xc)
+      return;
+
     CompareReplies(request, original_data, [&]() { return m_hle_device->IOCtlV(request); });
   });
   return GetNoReply();
