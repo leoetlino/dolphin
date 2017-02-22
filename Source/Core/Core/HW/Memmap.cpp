@@ -115,7 +115,7 @@ struct LogicalMemoryView
   u32 mapped_size;
 };
 
-// Dolphin allocates memory to represent four regions:
+// Dolphin allocates memory to represent five regions:
 // - 32MB RAM (actually 24MB on hardware), available on Gamecube and Wii
 // - 64MB "EXRAM", RAM only available on Wii
 // - 32MB FakeVMem, allocated in GameCube mode when MMU support is turned off.
@@ -125,6 +125,11 @@ struct LogicalMemoryView
 // - 256KB Locked L1, to represent cache lines allocated out of the L1 data
 //   cache in Locked L1 mode.  Dolphin does not emulate this hardware feature
 //   accurately; it just pretends there is extra memory at 0xE0000000.
+// - 4KB boot vector, to hold code executed upon cold boot of the CPU. On
+//   GameCube, this maps to the EXI IPL ROM (with decryption), while on Wii,
+//   this maps to a few writable registers that are normally set up by IOS.
+//   In Dolphin we emulate this as a small memory region and place the
+//   appropriate contents there.
 //
 // The 4GB starting at physical_base represents access from the CPU
 // with address translation turned off. (This is only used by the CPU;
@@ -136,7 +141,8 @@ struct LogicalMemoryView
 // [0x0C000000, 0x0E000000) - MMIO etc. (not handled here)
 // [0x10000000, 0x14000000) - 64MB RAM (Wii-only; slightly slower)
 // [0x7E000000, 0x80000000) - FakeVMEM
-// [0xE0000000, 0xE0040000) - 256KB locked L1
+// [0xE0000000, 0xE0040000) - 256KB locked
+// [0xFFF00000, 0xFFF01000) - Cold reset vector
 //
 // The 4GB starting at logical_base represents access from the CPU
 // with address translation turned on.  This mapping is computed based
@@ -160,6 +166,7 @@ static PhysicalMemoryRegion physical_regions[] = {
     {&m_pL1Cache, 0xE0000000, L1_CACHE_SIZE, PhysicalMemoryRegion::ALWAYS},
     {&m_pFakeVMEM, 0x7E000000, FAKEVMEM_SIZE, PhysicalMemoryRegion::FAKE_VMEM},
     {&m_pEXRAM, 0x10000000, EXRAM_SIZE, PhysicalMemoryRegion::WII_ONLY},
+    {&m_pBootVec, 0xFFF00000, BOOTVEC_SIZE, PhysicalMemoryRegion::ALWAYS},
 };
 
 static std::vector<LogicalMemoryView> logical_mapped_entries;
@@ -315,6 +322,8 @@ void Clear()
     memset(m_pFakeVMEM, 0, FAKEVMEM_SIZE);
   // if (m_pEXRAM)
   //   memset(m_pEXRAM, 0, EXRAM_SIZE);
+  if (m_pBootVec)
+    memset(m_pBootVec, 0, BOOTVEC_SIZE);
 }
 
 static inline u8* GetPointerForRange(u32 address, size_t size)
@@ -394,15 +403,18 @@ u8* GetPointer(u32 address)
 {
   // TODO: Should we be masking off more bits here?  Can all devices access
   // EXRAM?
-  address &= 0x3FFFFFFF;
-  if (address < REALRAM_SIZE)
-    return m_pRAM + address;
+  u32 masked_address = address & 0x3FFFFFFF;
+  if (masked_address < REALRAM_SIZE)
+    return m_pRAM + masked_address;
 
   if (m_pEXRAM)
   {
-    if ((address >> 28) == 0x1 && (address & 0x0fffffff) < EXRAM_SIZE)
-      return m_pEXRAM + (address & EXRAM_MASK);
+    if ((masked_address >> 28) == 0x1 && (masked_address & 0x0fffffff) < EXRAM_SIZE)
+      return m_pEXRAM + (masked_address & EXRAM_MASK);
   }
+
+  if (address >= 0xFFF00000 && address < (0xFFF00000 + BOOTVEC_SIZE))
+    return m_pBootVec + (address & BOOTVEC_MASK);
 
   PanicAlert("Unknown Pointer 0x%08x PC 0x%08x LR 0x%08x", address, PC, LR);
 
