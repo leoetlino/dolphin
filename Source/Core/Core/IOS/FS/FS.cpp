@@ -643,7 +643,7 @@ IPCCommandResult FS::GetUsage(const IOCtlVRequest& request)
     WARN_LOG(IOS_FILEIO, "FS: fsBlock failed, cannot find directory: %s", path.c_str());
   }
 
-  Memory::Write_U32(fsBlocks, request.io_vectors[0].address);
+  Memory::Write_U32(0, request.io_vectors[0].address);
   Memory::Write_U32(iNodes, request.io_vectors[1].address);
 
   return GetFSReply(IPC_SUCCESS);
