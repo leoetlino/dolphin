@@ -40,6 +40,28 @@ static bool ShouldReturnFakeViewsForIOSes(u64 title_id, const TitleContext& cont
          (ios && SConfig::GetInstance().m_BootType == SConfig::BOOT_ISO && disc_title);
 }
 
+ReturnCode ES::GetTicketViews(const IOS::ES::TicketReader &ticket, u8 *ticket_views)
+{
+  const IOS::ES::TicketReader* ticket_to_use = &ticket;
+  if (!ticket.IsValid())
+  {
+    if (!GetTitleContext().active)
+      return ES_EINVAL;
+
+    ticket_to_use = &GetTitleContext().ticket;
+  }
+
+  if (!ticket.IsValid())
+  {
+    for (u32 view = 0; view < static_cast<u32>(ticket.GetNumberOfTickets()); ++view)
+    {
+      const std::vector<u8> ticket_view = ticket.GetRawTicketView(view);
+      Memory::CopyToEmu(request.io_vectors[0].address + view * sizeof(IOS::ES::TicketView),
+                        ticket_view.data(), ticket_view.size());
+    }
+  }
+}
+
 IPCCommandResult ES::GetTicketViewCount(const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(1, 1))

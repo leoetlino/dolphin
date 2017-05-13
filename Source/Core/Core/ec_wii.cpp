@@ -85,7 +85,7 @@ void MakeNGCert(u8* ng_cert_out, u32 NG_id, u32 NG_key_id, const u8* NG_priv, co
 // NG_priv is the device-unique private key to use
 // NG_id is the device-unique id to use
 // if NG_priv is nullptr or NG_id is 0, it will use builtin defaults
-void MakeAPSigAndCert(u8* sig_out, u8* ap_cert_out, u64 title_id, u8* data, u32 data_size,
+void MakeAPSigAndCert(u8* sig_out, u8* ap_cert_out, u64 title_id, const u8* data, u32 data_size,
                       const u8* NG_priv, u32 NG_id)
 {
   u8 hash[20];

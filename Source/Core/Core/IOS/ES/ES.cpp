@@ -16,6 +16,7 @@
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
+#include "Common/StringUtil.h"
 #include "Core/ConfigManager.h"
 #include "Core/HW/Memmap.h"
 #include "Core/IOS/ES/Formats.h"
@@ -126,36 +127,48 @@ void ES::LoadWAD(const std::string& _rContentFile)
   INFO_LOG(IOS_ES, "LoadWAD: Title context changed: %016" PRIx64, s_title_context.tmd.GetTitleId());
 }
 
-IPCCommandResult ES::GetTitleDirectory(const IOCtlVRequest& request)
+ReturnCode ES::GetDataDir(u64 title_id, std::string* data_directory) const
+{
+  *data_directory = StringFromFormat("/title/%08x/%08x/data", static_cast<u32>(title_id >> 32),
+                                     static_cast<u32>(title_id));
+  return IPC_SUCCESS;
+}
+
+IPCCommandResult ES::GetDataDir(const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(1, 1))
     return GetDefaultReply(ES_EINVAL);
 
-  u64 TitleID = Memory::Read_U64(request.in_vectors[0].address);
+  std::string data_directory;
+  GetDataDir(Memory::Read_U64(request.in_vectors[0].address), &data_directory);
+  Memory::CopyToEmu(request.io_vectors[0].address, data_directory.data(), data_directory.size());
 
-  char* Path = (char*)Memory::GetPointer(request.io_vectors[0].address);
-  sprintf(Path, "/title/%08x/%08x/data", (u32)(TitleID >> 32), (u32)TitleID);
-
-  INFO_LOG(IOS_ES, "IOCTL_ES_GETTITLEDIR: %s", Path);
   return GetDefaultReply(IPC_SUCCESS);
 }
 
-IPCCommandResult ES::GetTitleID(const IOCtlVRequest& request)
+ReturnCode ES::GetTitleId(u64* title_id) const
+{
+  if (!s_title_context.active)
+    return ES_EINVAL;
+  *title_id = s_title_context.tmd.GetTitleId();
+  return IPC_SUCCESS;
+}
+
+IPCCommandResult ES::GetTitleId(const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(0, 1))
     return GetDefaultReply(ES_EINVAL);
 
-  if (!s_title_context.active)
-    return GetDefaultReply(ES_EINVAL);
+  u64 title_id;
+  const ReturnCode ret = GetTitleId(&title_id);
+  if (ret != IPC_SUCCESS)
+    return GetDefaultReply(ret);
 
-  const u64 title_id = s_title_context.tmd.GetTitleId();
   Memory::Write_U64(title_id, request.io_vectors[0].address);
-  INFO_LOG(IOS_ES, "IOCTL_ES_GETTITLEID: %08x/%08x", static_cast<u32>(title_id >> 32),
-           static_cast<u32>(title_id));
-  return GetDefaultReply(IPC_SUCCESS);
+  return GetDefaultReply(ret);
 }
 
-static bool UpdateUIDAndGID(Kernel& kernel, const IOS::ES::TMDReader& tmd)
+static ReturnCode UpdateUIDAndGID(Kernel& kernel, const IOS::ES::TMDReader& tmd)
 {
   IOS::ES::UIDSys uid_sys{Common::FromWhichRoot::FROM_SESSION_ROOT};
   const u64 title_id = tmd.GetTitleId();
@@ -163,11 +176,11 @@ static bool UpdateUIDAndGID(Kernel& kernel, const IOS::ES::TMDReader& tmd)
   if (!uid)
   {
     ERROR_LOG(IOS_ES, "Failed to get UID for title %016" PRIx64, title_id);
-    return false;
+    return ES_SHORT_READ;
   }
   kernel.SetUidForPPC(uid);
   kernel.SetGidForPPC(tmd.GetGroupId());
-  return true;
+  return IPC_SUCCESS;
 }
 
 static ReturnCode CheckIsAllowedToSetUID(const u32 caller_uid)
@@ -179,34 +192,32 @@ static ReturnCode CheckIsAllowedToSetUID(const u32 caller_uid)
   return caller_uid == system_menu_uid ? IPC_SUCCESS : ES_EINVAL;
 }
 
-IPCCommandResult ES::SetUID(u32 uid, const IOCtlVRequest& request)
+ReturnCode ES::SetUid(u32 uid, u64 title_id)
+{
+  const ReturnCode ret = CheckIsAllowedToSetUID(uid);
+  if (ret < 0)
+  {
+    ERROR_LOG(IOS_ES, "SetUid: Permission check failed with error %d", ret);
+    return ret;
+  }
+
+  const auto tmd = IOS::ES::FindInstalledTMD(title_id);
+  if (!tmd.IsValid())
+    return FS_ENOENT;
+
+  return UpdateUIDAndGID(m_ios, tmd);
+}
+
+IPCCommandResult ES::SetUid(u32 uid, const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(1, 0) || request.in_vectors[0].size != 8)
     return GetDefaultReply(ES_EINVAL);
 
   const u64 title_id = Memory::Read_U64(request.in_vectors[0].address);
-
-  const s32 ret = CheckIsAllowedToSetUID(uid);
-  if (ret < 0)
-  {
-    ERROR_LOG(IOS_ES, "SetUID: Permission check failed with error %d", ret);
-    return GetDefaultReply(ret);
-  }
-
-  const auto tmd = IOS::ES::FindInstalledTMD(title_id);
-  if (!tmd.IsValid())
-    return GetDefaultReply(FS_ENOENT);
-
-  if (!UpdateUIDAndGID(m_ios, tmd))
-  {
-    ERROR_LOG(IOS_ES, "SetUID: Failed to get UID for title %016" PRIx64, title_id);
-    return GetDefaultReply(ES_SHORT_READ);
-  }
-
-  return GetDefaultReply(IPC_SUCCESS);
+  return GetDefaultReply(SetUid(uid, title_id));
 }
 
-bool ES::LaunchTitle(u64 title_id, bool skip_reload)
+ReturnCode ES::LaunchTitle(u64 title_id, bool skip_reload)
 {
   s_title_context.Clear();
   INFO_LOG(IOS_ES, "ES_Launch: Title context changed: (none)");
@@ -223,15 +234,15 @@ bool ES::LaunchTitle(u64 title_id, bool skip_reload)
   return LaunchPPCTitle(title_id, skip_reload);
 }
 
-bool ES::LaunchIOS(u64 ios_title_id)
+ReturnCode ES::LaunchIOS(u64 ios_title_id)
 {
-  return m_ios.BootIOS(ios_title_id);
+  return m_ios.BootIOS(ios_title_id) ? IPC_SUCCESS : FS_ENOENT;
 }
 
-bool ES::LaunchPPCTitle(u64 title_id, bool skip_reload)
+ReturnCode ES::LaunchPPCTitle(u64 title_id, bool skip_reload)
 {
   const DiscIO::CNANDContentLoader& content_loader = AccessContentDevice(title_id);
-  if (!content_loader.IsValid())
+  if (!content_loader.IsValid() || !content_loader.GetTMD().IsValid())
   {
     if (title_id == 0x0000000100000002)
     {
@@ -244,11 +255,11 @@ bool ES::LaunchPPCTitle(u64 title_id, bool skip_reload)
                   "The emulated software will likely hang now.",
                   title_id);
     }
-    return false;
+    return FS_ENOENT;
   }
 
-  if (!content_loader.GetTMD().IsValid() || !content_loader.GetTicket().IsValid())
-    return false;
+  if (!content_loader.GetTicket().IsValid())
+    return ES_INVALID_TICKET;
 
   // Before launching a title, IOS first reads the TMD and reloads into the specified IOS version,
   // even when that version is already running. After it has reloaded, ES_Launch will be called
@@ -266,14 +277,15 @@ bool ES::LaunchPPCTitle(u64 title_id, bool skip_reload)
 
   // Note: the UID/GID is also updated for IOS titles, but since we have no guarantee IOS titles
   // are installed, we can only do this for PPC titles.
-  if (!UpdateUIDAndGID(m_ios, s_title_context.tmd))
+  const ReturnCode ret = UpdateUIDAndGID(m_ios, s_title_context.tmd);
+  if (ret != IPC_SUCCESS)
   {
     s_title_context.Clear();
     INFO_LOG(IOS_ES, "LaunchPPCTitle: Title context changed: (none)");
-    return false;
+    return ret;
   }
 
-  return m_ios.BootstrapPPC(content_loader);
+  return m_ios.BootstrapPPC(content_loader) ? IPC_SUCCESS : FS_ENOENT;
 }
 
 void ES::Context::DoState(PointerWrap& p)
@@ -383,85 +395,85 @@ IPCCommandResult ES::IOCtlV(const IOCtlVRequest& request)
   switch (request.request)
   {
   case IOCTL_ES_ADDTICKET:
-    return AddTicket(request);
+    return ImportTicket(request);
   case IOCTL_ES_ADDTMD:
-    return AddTMD(*context, request);
+    return ImportTmd(*context, request);
   case IOCTL_ES_ADDTITLESTART:
-    return AddTitleStart(*context, request);
+    return ImportTitleInit(*context, request);
   case IOCTL_ES_ADDCONTENTSTART:
-    return AddContentStart(*context, request);
+    return ImportContentBegin(*context, request);
   case IOCTL_ES_ADDCONTENTDATA:
-    return AddContentData(*context, request);
+    return ImportContentData(*context, request);
   case IOCTL_ES_ADDCONTENTFINISH:
-    return AddContentFinish(*context, request);
+    return ImportContentEnd(*context, request);
   case IOCTL_ES_ADDTITLEFINISH:
-    return AddTitleFinish(*context, request);
+    return ImportTitleDone(*context, request);
   case IOCTL_ES_ADDTITLECANCEL:
-    return AddTitleCancel(*context, request);
+    return ImportTitleCancel(*context, request);
   case IOCTL_ES_GETDEVICEID:
-    return GetConsoleID(request);
+    return GetDeviceId(request);
   case IOCTL_ES_OPENTITLECONTENT:
-    return OpenTitleContent(context->uid, request);
+    return OpenTitleContentFile(context->uid, request);
   case IOCTL_ES_OPENCONTENT:
-    return OpenContent(context->uid, request);
+    return OpenContentFile(context->uid, request);
   case IOCTL_ES_READCONTENT:
-    return ReadContent(context->uid, request);
+    return ReadContentFile(context->uid, request);
   case IOCTL_ES_CLOSECONTENT:
-    return CloseContent(context->uid, request);
+    return CloseContentFile(context->uid, request);
   case IOCTL_ES_SEEKCONTENT:
-    return SeekContent(context->uid, request);
+    return SeekContentFile(context->uid, request);
   case IOCTL_ES_GETTITLEDIR:
-    return GetTitleDirectory(request);
+    return GetDataDir(request);
   case IOCTL_ES_GETTITLEID:
-    return GetTitleID(request);
+    return GetTitleId(request);
   case IOCTL_ES_SETUID:
-    return SetUID(context->uid, request);
+    return SetUid(context->uid, request);
   case IOCTL_ES_DIVERIFY:
-    return DIVerify(request);
+    return DiVerify(request);
 
   case IOCTL_ES_GETOWNEDTITLECNT:
-    return GetOwnedTitleCount(request);
+    return ListOwnedTitlesCount(request);
   case IOCTL_ES_GETOWNEDTITLES:
-    return GetOwnedTitles(request);
+    return ListOwnedTitles(request);
   case IOCTL_ES_GETTITLECNT:
-    return GetTitleCount(request);
+    return ListTitlesCount(request);
   case IOCTL_ES_GETTITLES:
-    return GetTitles(request);
+    return ListTitles(request);
 
   case IOCTL_ES_GETTITLECONTENTSCNT:
-    return GetStoredContentsCount(request);
+    return ListTitleContentsCount(request);
   case IOCTL_ES_GETTITLECONTENTS:
-    return GetStoredContents(request);
+    return ListTitleContents(request);
   case IOCTL_ES_GETSTOREDCONTENTCNT:
-    return GetTMDStoredContentsCount(request);
+    return ListTmdContentsCount(request);
   case IOCTL_ES_GETSTOREDCONTENTS:
-    return GetTMDStoredContents(request);
+    return ListTmdContents(request);
 
   case IOCTL_ES_GETSHAREDCONTENTCNT:
-    return GetSharedContentsCount(request);
+    return ListSharedContentsCount(request);
   case IOCTL_ES_GETSHAREDCONTENTS:
-    return GetSharedContents(request);
+    return ListSharedContents(request);
 
   case IOCTL_ES_GETVIEWCNT:
-    return GetTicketViewCount(request);
+    return GetTicketViewsCount(request);
   case IOCTL_ES_GETVIEWS:
     return GetTicketViews(request);
   case IOCTL_ES_DIGETTICKETVIEW:
-    return DIGetTicketView(request);
+    return DiGetTicketView(request);
 
   case IOCTL_ES_GETTMDVIEWCNT:
-    return GetTMDViewSize(request);
+    return GetTmdViewSizeFromTitleId(request);
   case IOCTL_ES_GETTMDVIEWS:
-    return GetTMDViews(request);
+    return GetTmdViewFromTitleId(request);
 
   case IOCTL_ES_DIGETTMDVIEWSIZE:
-    return DIGetTMDViewSize(request);
+    return GetTmdViewSize(request);
   case IOCTL_ES_DIGETTMDVIEW:
-    return DIGetTMDView(request);
+    return GetTmdView(request);
   case IOCTL_ES_DIGETTMDSIZE:
-    return DIGetTMDSize(request);
+    return DiGetTmdSize(request);
   case IOCTL_ES_DIGETTMD:
-    return DIGetTMD(request);
+    return DiGetTmd(request);
 
   case IOCTL_ES_GETCONSUMPTION:
     return GetConsumption(request);
@@ -472,15 +484,15 @@ IPCCommandResult ES::IOCtlV(const IOCtlVRequest& request)
   case IOCTL_ES_DELETETITLECONTENT:
     return DeleteTitleContent(request);
   case IOCTL_ES_GETSTOREDTMDSIZE:
-    return GetStoredTMDSize(request);
+    return GetTmdSize(request);
   case IOCTL_ES_GETSTOREDTMD:
-    return GetStoredTMD(request);
+    return GetTmd(request);
   case IOCTL_ES_ENCRYPT:
     return Encrypt(context->uid, request);
   case IOCTL_ES_DECRYPT:
     return Decrypt(context->uid, request);
   case IOCTL_ES_LAUNCH:
-    return Launch(request);
+    return LaunchTitle(request);
   case IOCTL_ES_LAUNCHBC:
     return LaunchBC(request);
   case IOCTL_ES_EXPORTTITLEINIT:
@@ -496,7 +508,7 @@ IPCCommandResult ES::IOCtlV(const IOCtlVRequest& request)
   case IOCTL_ES_CHECKKOREAREGION:
     return CheckKoreaRegion(request);
   case IOCTL_ES_GETDEVICECERT:
-    return GetDeviceCertificate(request);
+    return GetDeviceCert(request);
   case IOCTL_ES_SIGN:
     return Sign(request);
   case IOCTL_ES_GETBOOT2VERSION:
@@ -524,18 +536,45 @@ IPCCommandResult ES::IOCtlV(const IOCtlVRequest& request)
   }
 }
 
+ReturnCode ES::GetConsumption()
+{
+  // TODO: Unimplemented.
+  return IPC_SUCCESS;
+}
+
 IPCCommandResult ES::GetConsumption(const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(1, 2))
     return GetDefaultReply(ES_EINVAL);
 
+  const ReturnCode ret = GetConsumption();
   // This is at least what crediar's ES module does
   Memory::Write_U32(0, request.io_vectors[1].address);
   INFO_LOG(IOS_ES, "IOCTL_ES_GETCONSUMPTION");
+  return GetDefaultReply(ret);
+}
+
+ReturnCode ES::GetBoot2Version(u32 *version)
+{
+  INFO_LOG(IOS_ES, "GetBoot2Version");
+  // as of 26/02/2012, this was latest bootmii version
+  *version = 4;
+  return IPC_SUCCESS;
+}
+
+IPCCommandResult ES::GetBoot2Version(const IOCtlVRequest& request)
+{
+  if (!request.HasNumberOfValidVectors(0, 1))
+    return GetDefaultReply(ES_EINVAL);
+
+  u32 version;
+  GetBoot2Version(&version);
+
+  Memory::Write_U32(version, request.io_vectors[0].address);
   return GetDefaultReply(IPC_SUCCESS);
 }
 
-IPCCommandResult ES::Launch(const IOCtlVRequest& request)
+IPCCommandResult ES::LaunchTitle(const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(2, 0))
     return GetDefaultReply(ES_EINVAL);
@@ -552,8 +591,9 @@ IPCCommandResult ES::Launch(const IOCtlVRequest& request)
 
   // IOS replies to the request through the mailbox on failure, and acks if the launch succeeds.
   // Note: Launch will potentially reset the whole IOS state -- including this ES instance.
-  if (!LaunchTitle(TitleID))
-    return GetDefaultReply(FS_ENOENT);
+  const s32 ret = LaunchTitle(TitleID);
+  if (ret != IPC_SUCCESS)
+    return GetDefaultReply(ret);
 
   // ES_LAUNCH involves restarting IOS, which results in two acknowledgements in a row
   // (one from the previous IOS for this IPC request, and one from the new one as it boots).
@@ -561,18 +601,24 @@ IPCCommandResult ES::Launch(const IOCtlVRequest& request)
   return GetNoReply();
 }
 
+ReturnCode ES::LaunchBC()
+{
+  // Here, IOS checks the clock speed and prevents ioctlv 0x25 from being used in GC mode.
+  // An alternative way to do this is to check whether the current active IOS is MIOS.
+  if (m_ios.GetVersion() == 0x101)
+    return ES_EINVAL;
+
+  return LaunchTitle(0x0000000100000100);
+}
+
 IPCCommandResult ES::LaunchBC(const IOCtlVRequest& request)
 {
   if (!request.HasNumberOfValidVectors(0, 0))
     return GetDefaultReply(ES_EINVAL);
 
-  // Here, IOS checks the clock speed and prevents ioctlv 0x25 from being used in GC mode.
-  // An alternative way to do this is to check whether the current active IOS is MIOS.
-  if (m_ios.GetVersion() == 0x101)
-    return GetDefaultReply(ES_EINVAL);
-
-  if (!LaunchTitle(0x0000000100000100))
-    return GetDefaultReply(FS_ENOENT);
+  const ReturnCode ret = LaunchBC();
+  if (ret != IPC_SUCCESS)
+    return GetDefaultReply(ret);
 
   return GetNoReply();
 }
@@ -595,12 +641,12 @@ const DiscIO::CNANDContentLoader& ES::AccessContentDevice(u64 title_id)
 // This is technically an ioctlv in IOS's ES, but it is an internal API which cannot be
 // used from the PowerPC (for unpatched and up-to-date IOSes anyway).
 // So we block access to it from the IPC interface.
-IPCCommandResult ES::DIVerify(const IOCtlVRequest& request)
+IPCCommandResult ES::DiVerify(const IOCtlVRequest& request)
 {
   return GetDefaultReply(ES_EINVAL);
 }
 
-s32 ES::DIVerify(const IOS::ES::TMDReader& tmd, const IOS::ES::TicketReader& ticket)
+ReturnCode ES::DiVerify(const IOS::ES::TMDReader& tmd, const IOS::ES::TicketReader& ticket)
 {
   s_title_context.Clear();
   INFO_LOG(IOS_ES, "ES_DIVerify: Title context changed: (none)");
