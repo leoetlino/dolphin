@@ -311,7 +311,7 @@ bool CBoot::SetupWiiMemory(const DiscIO::IVolume* volume, u64 ios_title_id)
   Memory::Write_U16(0x8201, 0x000030e6);                // Dev console / debug capable
   Memory::Write_U32(0x00000000, 0x000030f0);            // Apploader
 
-  if (!IOS::HLE::GetIOS()->BootIOS(ios_title_id))
+  if (!IOS::HLE::GetIOS()->GetES()->LaunchTitle(ios_title_id))
     return false;
 
   Memory::Write_U8(0x80, 0x0000315c);         // OSInit

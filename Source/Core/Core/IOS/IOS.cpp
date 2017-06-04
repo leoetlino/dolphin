@@ -100,7 +100,7 @@ enum class MemorySetupType
   Full,
 };
 
-static bool SetupMemory(u64 ios_title_id, MemorySetupType setup_type)
+static bool SetupMemory(u64 ios_title_id, u32 version, MemorySetupType setup_type)
 {
   auto target_imv = std::find_if(
       GetMemoryValues().begin(), GetMemoryValues().end(),
@@ -154,7 +154,8 @@ static bool SetupMemory(u64 ios_title_id, MemorySetupType setup_type)
   Memory::Write_U32(target_imv->ipc_buffer_end, ADDR_IPC_BUFFER_END);
   Memory::Write_U32(target_imv->hollywood_revision, ADDR_HOLLYWOOD_REVISION);
   Memory::Write_U32(PLACEHOLDER, ADDR_PH3);
-  Memory::Write_U32(target_imv->ios_version, ADDR_IOS_VERSION);
+  // Keep the version generated from the TMD if possible, and fall back to the hardcoded one.
+  Memory::Write_U32(version != 0 ? version : target_imv->ios_version, ADDR_IOS_VERSION);
   Memory::Write_U32(target_imv->ios_date, ADDR_IOS_DATE);
   Memory::Write_U32(target_imv->unknown_begin, ADDR_UNKNOWN_BEGIN);
   Memory::Write_U32(target_imv->unknown_end, ADDR_UNKNOWN_END);
@@ -200,15 +201,15 @@ Kernel::~Kernel()
   Core::ShutdownWiiRoot();
 }
 
-Kernel::Kernel(u64 title_id) : m_title_id(title_id)
+Kernel::Kernel(u64 title_id, u32 version) : m_title_id(title_id), m_version(version)
 {
 }
 
-EmulationKernel::EmulationKernel(u64 title_id) : Kernel(title_id)
+EmulationKernel::EmulationKernel(u64 title_id, u32 version) : Kernel(title_id, version)
 {
-  INFO_LOG(IOS, "Starting IOS %016" PRIx64, title_id);
+  INFO_LOG(IOS, "Starting IOS %016" PRIx64 " (version %08x)", title_id, version);
 
-  if (!SetupMemory(title_id, MemorySetupType::IOSReload))
+  if (!SetupMemory(title_id, version, MemorySetupType::IOSReload))
     WARN_LOG(IOS, "No information about this IOS -- cannot set up memory values");
 
   Core::InitializeWiiRoot(Core::WantsDeterminism());
@@ -286,7 +287,7 @@ bool Kernel::BootstrapPPC(const DiscIO::CNANDContentLoader& content_loader)
   if (!dol_loader->IsValid())
     return false;
 
-  if (!SetupMemory(m_title_id, MemorySetupType::Full))
+  if (!SetupMemory(m_title_id, m_version, MemorySetupType::Full))
     return false;
 
   dol_loader->Load();
@@ -303,7 +304,7 @@ bool Kernel::BootstrapPPC(const DiscIO::CNANDContentLoader& content_loader)
 // Similar to syscall 0x42 (ios_boot); this is used to change the current active IOS.
 // IOS writes the new version to 0x3140 before restarting, but it does *not* poke any
 // of the other constants to the memory. Warning: this resets the kernel instance.
-bool Kernel::BootIOS(const u64 ios_title_id)
+bool Kernel::BootIOS(const u64 ios_title_id, const u32 version)
 {
   // A real Wii goes through several steps before getting to MIOS.
   //
@@ -316,12 +317,16 @@ bool Kernel::BootIOS(const u64 ios_title_id)
   if (ios_title_id == BC_TITLE_ID)
   {
     NOTICE_LOG(IOS, "BC: Launching MIOS...");
-    return BootIOS(MIOS_TITLE_ID);
+    return BootIOS(MIOS_TITLE_ID, version);
   }
+
+  // Set the new OS version here, before booting the new kernel,
+  // because this is done by the old kernel in this syscall, not the new one.
+  Memory::Write_U32(version, ADDR_IOS_VERSION);
 
   // Shut down the active IOS first before switching to the new one.
   s_ios.reset();
-  s_ios = std::make_unique<EmulationKernel>(ios_title_id);
+  s_ios = std::make_unique<EmulationKernel>(ios_title_id, version);
   return true;
 }
 
@@ -680,13 +685,13 @@ void Init()
   });
 
   // Start with IOS80 to simulate part of the Wii boot process.
-  s_ios = std::make_unique<EmulationKernel>(IOS80_TITLE_ID);
+  s_ios = std::make_unique<EmulationKernel>(IOS80_TITLE_ID, 0);
   // On a Wii, boot2 launches the system menu IOS, which then launches the system menu
   // (which bootstraps the PPC). Bootstrapping the PPC results in memory values being set up.
   // This means that the constants in the 0x3100 region are always set up by the time
   // a game is launched. This is necessary because booting games from the game list skips
   // a significant part of a Wii's boot process.
-  SetupMemory(IOS80_TITLE_ID, MemorySetupType::Full);
+  SetupMemory(IOS80_TITLE_ID, 0, MemorySetupType::Full);
 }
 
 void Shutdown()

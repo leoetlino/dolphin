@@ -225,7 +225,13 @@ bool ES::LaunchTitle(u64 title_id, bool skip_reload)
 
 bool ES::LaunchIOS(u64 ios_title_id)
 {
-  return m_ios.BootIOS(ios_title_id);
+  // Get the installed TMD title version, which is used for the version constant (0x3140).
+  const auto tmd = IOS::ES::FindInstalledTMD(ios_title_id);
+  // Unfortunately, we still have to support everyone without a proper NAND setup,
+  // which means we must handle cases where no IOS is installed gracefully.
+  const u32 title_identifier = static_cast<u32>(ios_title_id);
+  const u32 version = tmd.IsValid() ? (title_identifier << 16) | tmd.GetTitleVersion() : 0;
+  return m_ios.BootIOS(ios_title_id, version);
 }
 
 bool ES::LaunchPPCTitle(u64 title_id, bool skip_reload)

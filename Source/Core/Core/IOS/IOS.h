@@ -112,13 +112,13 @@ public:
   u16 GetGidForPPC() const;
 
   bool BootstrapPPC(const DiscIO::CNANDContentLoader& content_loader);
-  bool BootIOS(u64 ios_title_id);
+  bool BootIOS(u64 ios_title_id, u32 version);
   u32 GetVersion() const;
 
   IOSC& GetIOSC();
 
 protected:
-  explicit Kernel(u64 title_id);
+  explicit Kernel(u64 title_id, u32 version);
 
   void ExecuteIPCCommand(u32 address);
   IPCCommandResult HandleIPCCommand(const Request& request);
@@ -132,6 +132,7 @@ protected:
   s32 OpenDevice(OpenRequest& request);
 
   u64 m_title_id = 0;
+  u32 m_version = 0;
   static constexpr u8 IPC_MAX_FDS = 0x18;
   std::map<std::string, std::shared_ptr<Device::Device>> m_device_map;
   std::mutex m_device_map_mutex;
@@ -154,7 +155,7 @@ protected:
 class EmulationKernel : public Kernel
 {
 public:
-  explicit EmulationKernel(u64 ios_title_id);
+  explicit EmulationKernel(u64 ios_title_id, u32 version);
   ~EmulationKernel();
 
   // Get a resource manager by name.
