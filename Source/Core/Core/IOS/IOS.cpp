@@ -178,6 +178,18 @@ constexpr u64 IOS80_TITLE_ID = 0x0000000100000050;
 constexpr u64 BC_TITLE_ID = 0x0000000100000100;
 constexpr u64 MIOS_TITLE_ID = 0x0000000100000101;
 
+static void Log(const char* msg, ...)
+{
+  va_list args;
+  va_start(args, msg);
+  std::string res = StringFromFormatV(msg, args);
+  va_end(args);
+
+  File::IOFile f{File::GetUserPath(D_DUMP_IDX) + "/ios_req.log", "a"};
+  f.WriteBytes(res.data(), res.size());
+  f.WriteBytes("\n", 1);
+}
+
 Kernel::Kernel()
 {
   // Until the Wii root and NAND path stuff is entirely managed by IOS and made non-static,
@@ -450,21 +462,55 @@ IPCCommandResult Kernel::HandleIPCCommand(const Request& request)
   if (!device)
     return Device::Device::GetDefaultReply(IPC_EINVAL);
 
+  const std::string device_name = device->GetDeviceName();
+  const bool log = device_name != "/dev/usb/oh1/57e/305" && device_name != "/dev/usb/kbd";
+
   switch (request.command)
   {
   case IPC_CMD_CLOSE:
+  {
     m_fdmap[request.fd].reset();
+    if (log)
+      Log("IOS_Close(fd=%d(%s))", request.fd, device->GetDeviceName().c_str());
     return Device::Device::GetDefaultReply(device->Close(request.fd));
+  }
   case IPC_CMD_READ:
-    return device->Read(ReadWriteRequest{request.address});
+  {
+    auto r = ReadWriteRequest{request.address};
+    if (log)
+      Log("IOS_Read(fd=%d(%s))", request.fd, device->GetDeviceName().c_str());
+    return device->Read(r);
+  }
   case IPC_CMD_WRITE:
-    return device->Write(ReadWriteRequest{request.address});
+  {
+    auto r = ReadWriteRequest{request.address};
+    if (log)
+      Log("IOS_Write(fd=%d(%s))", request.fd, device->GetDeviceName().c_str());
+    return device->Write(r);
+  }
   case IPC_CMD_SEEK:
-    return device->Seek(SeekRequest{request.address});
+  {
+    auto r = SeekRequest{request.address};
+    if (log)
+      Log("IOS_Seek(fd=%d(%s))", request.fd, device->GetDeviceName().c_str());
+    return device->Seek(r);
+  }
   case IPC_CMD_IOCTL:
-    return device->IOCtl(IOCtlRequest{request.address});
+  {
+    auto r = IOCtlRequest{request.address};
+    if (log)
+      Log("IOS_Ioctl(fd=%d(%s), req=0x%x)", request.fd, device->GetDeviceName().c_str(),
+                r.request);
+    return device->IOCtl(r);
+  }
   case IPC_CMD_IOCTLV:
-    return device->IOCtlV(IOCtlVRequest{request.address});
+  {
+    auto r = IOCtlVRequest{request.address};
+    if (log)
+      Log("IOS_Ioctlv(fd=%d(%s), req=0x%x)", request.fd, device->GetDeviceName().c_str(),
+                r.request);
+    return device->IOCtlV(r);
+  }
   default:
     _assert_msg_(IOS, false, "Unexpected command: %x", request.command);
     return Device::Device::GetDefaultReply(IPC_EINVAL);
@@ -498,6 +544,64 @@ void Kernel::EnqueueIPCRequest(u32 address)
 void Kernel::EnqueueIPCReply(const Request& request, const s32 return_value, int cycles_in_future,
                              CoreTiming::FromThread from)
 {
+  if (request.command != IPCCommandType::IPC_CMD_OPEN &&
+      request.command != IPCCommandType::IPC_CMD_CLOSE)
+  {
+    const auto device = m_fdmap[request.fd];
+    if (device->GetDeviceName() != "/dev/usb/oh1/57e/305" && device->GetDeviceName() != "/dev/usb/kbd")
+    {
+      switch (request.command)
+      {
+      default:
+        break;
+      case IPC_CMD_CLOSE:
+      {
+        Log("      IOS_Close(fd=%d(%s)) = %d", request.fd, device->GetDeviceName().c_str(), return_value);
+        break;
+      }
+      case IPC_CMD_READ:
+      {
+        auto r = ReadWriteRequest{request.address};
+          Log("      IOS_Read(fd=%d(%s)) = %d", request.fd, device->GetDeviceName().c_str(), return_value);
+          Log("read data:\n%s", HexDump(Memory::GetPointer(r.buffer), r.size).c_str());
+          break;
+      }
+      case IPC_CMD_WRITE:
+      {
+        auto r = ReadWriteRequest{request.address};
+          Log("      IOS_Write(fd=%d(%s)) = %d", request.fd, device->GetDeviceName().c_str(), return_value);
+          Log("write data:\n%s", HexDump(Memory::GetPointer(r.buffer), r.size).c_str());
+          break;
+      }
+      case IPC_CMD_SEEK:
+      {
+        auto r = SeekRequest{request.address};
+          Log("      IOS_Seek(fd=%d(%s)) = %d", request.fd, device->GetDeviceName().c_str(), return_value);
+          break;
+      }
+      case IPC_CMD_IOCTL:
+      {
+        auto r = IOCtlRequest{request.address};
+          Log("      IOS_Ioctl(fd=%d(%s), req=0x%x) = %d", request.fd, device->GetDeviceName().c_str(),
+                    r.request, return_value);
+          Log("ioctl in:\n%s", HexDump(Memory::GetPointer(r.buffer_in), r.buffer_in_size).c_str());
+          Log("ioctl out:\n%s", HexDump(Memory::GetPointer(r.buffer_out), r.buffer_out_size).c_str());
+          break;
+      }
+      case IPC_CMD_IOCTLV:
+      {
+        auto r = IOCtlVRequest{request.address};
+        Log("      IOS_Ioctlv(fd=%d(%s), req=0x%x) = %d", request.fd, device->GetDeviceName().c_str(),
+                    r.request, return_value);
+        for (const auto& vector : r.in_vectors)
+          Log("vin:\n%s", HexDump(Memory::GetPointer(vector.address), vector.size).c_str());
+        for (const auto& vector : r.io_vectors)
+          Log("vout:\n%s", HexDump(Memory::GetPointer(vector.address), vector.size).c_str());
+          break;
+      }
+      }
+    }
+  }
   Memory::Write_U32(static_cast<u32>(return_value), request.address + 4);
   // IOS writes back the command that was responded to in the FD field.
   Memory::Write_U32(request.command, request.address + 8);
