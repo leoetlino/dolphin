@@ -25,6 +25,21 @@ namespace IOS
 {
 namespace HLE
 {
+namespace
+{
+std::string GroupIdToString(u16 group_id)
+{
+  return StringFromFormat("%c%c", static_cast<char>(group_id >> 8), static_cast<char>(group_id));
+}
+
+std::string TitleIdToString(u64 title_id)
+{
+  return StringFromFormat("%c%c%c%c", static_cast<char>(title_id >> 24),
+                          static_cast<char>(title_id >> 16), static_cast<char>(title_id >> 8),
+                          static_cast<char>(title_id));
+}
+}  // end of anonymous namespace
+
 void ARCUnpacker::Reset()
 {
   m_whole_file.clear();
@@ -137,11 +152,9 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
     mbedtls_aes_setkey_dec(&m_aes_ctx, m_aes_key, 128);
 
     m_title_id = m_tmd.GetTitleId();
-    m_title_id_str = StringFromFormat(
-        "%c%c%c%c", static_cast<char>(m_title_id >> 24), static_cast<char>(m_title_id >> 16),
-        static_cast<char>(m_title_id >> 8), static_cast<char>(m_title_id));
+    m_title_id_str = TitleIdToString(m_title_id);
     m_group_id = m_tmd.GetGroupId();
-    m_group_id_str = StringFromFormat("%c%c", m_group_id >> 8, m_group_id & 0xFF);
+    m_group_id_str = GroupIdToString(m_group_id);
 
     if (m_patch_type == ImportType::Patch)
       CancelPatchImport();
@@ -266,13 +279,11 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
       return_error_code = IPC_EINVAL;
       break;
     }
-    m_title_id_str = StringFromFormat(
-        "%c%c%c%c", static_cast<char>(m_title_id >> 24), static_cast<char>(m_title_id >> 16),
-        static_cast<char>(m_title_id >> 8), static_cast<char>(m_title_id));
+    m_title_id_str = TitleIdToString(m_title_id);
 
     IOS::ES::TMDReader tmd = GetIOS()->GetES()->FindInstalledTMD(m_title_id);
     m_group_id = tmd.GetGroupId();
-    m_group_id_str = StringFromFormat("%c%c", m_group_id >> 8, m_group_id & 0xFF);
+    m_group_id_str = GroupIdToString(m_group_id);
     break;
   }
 
@@ -419,7 +430,6 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
 
 u32 WFSI::GetTmd(u16 group_id, u32 title_id, u64 subtitle_id, u32 address, u32* size) const
 {
-  // TODO(wfs): This is using a separate copy of tid/gid in wfssrv. Why?
   std::string path =
       StringFromFormat("/vol/%s/title/%s/%s/meta/%016" PRIx64 ".tmd", m_device_name.c_str(),
                        m_group_id_str.c_str(), m_title_id_str.c_str(), subtitle_id);
