@@ -432,7 +432,8 @@ u32 WFSI::GetTmd(u16 group_id, u32 title_id, u64 subtitle_id, u32 address, u32* 
 {
   std::string path =
       StringFromFormat("/vol/%s/title/%s/%s/meta/%016" PRIx64 ".tmd", m_device_name.c_str(),
-                       m_group_id_str.c_str(), m_title_id_str.c_str(), subtitle_id);
+                       GroupIdToString(group_id).c_str(), TitleIdToString(title_id).c_str(),
+                       subtitle_id);
   File::IOFile fp(WFS::NativePath(path), "rb");
   if (!fp)
   {
