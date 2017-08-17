@@ -98,7 +98,7 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
     u32 tmd_addr = Memory::Read_U32(request.buffer_in);
     u32 tmd_size = Memory::Read_U32(request.buffer_in + 4);
 
-    m_patch_type = Memory::Read_U32(request.buffer_in + 32);
+    m_patch_type = static_cast<ImportType>(Memory::Read_U32(request.buffer_in + 32));
     m_continue_install = Memory::Read_U32(request.buffer_in + 36);
 
     INFO_LOG(IOS, "IOCTL_WFSI_IMPORT_TITLE_INIT: patch type %d, continue install: %s", m_patch_type,

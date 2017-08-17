@@ -64,7 +64,14 @@ private:
 
   // Set on IMPORT_TITLE_INIT to indicate that the install is a patch and not a
   // standalone title.
-  u32 m_patch_type = 0;
+  enum class ImportType : s32
+  {
+    Title = 0,
+    Patch = 1,
+    Patch2 = 2,
+    Invalid = -1,
+  };
+  ImportType m_patch_type = ImportType::Title;
 
   ARCUnpacker m_arc_unpacker;
 
