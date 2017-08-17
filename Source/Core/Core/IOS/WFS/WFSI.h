@@ -58,11 +58,11 @@ private:
   u16 m_group_id;
   std::string m_group_id_str;
 
-  // Set on PREPARE_DEVICE when the next profile application should not delete
+  // Set on IMPORT_TITLE_INIT when the next profile application should not delete
   // temporary install files.
   bool m_continue_install = false;
 
-  // Set on PREPARE_DEVICE to indicate that the install is a patch and not a
+  // Set on IMPORT_TITLE_INIT to indicate that the install is a patch and not a
   // standalone title.
   u32 m_patch_type = 0;
 
@@ -70,7 +70,7 @@ private:
 
   enum
   {
-    IOCTL_WFSI_PREPARE_DEVICE = 0x02,
+    IOCTL_WFSI_IMPORT_TITLE_INIT = 0x02,
 
     IOCTL_WFSI_PREPARE_CONTENT = 0x03,
     IOCTL_WFSI_IMPORT_CONTENT = 0x04,
@@ -79,7 +79,7 @@ private:
     IOCTL_WFSI_FINALIZE_IMPORT = 0x06,
 
     IOCTL_WFSI_DELETE_TITLE = 0x17,
-    IOCTL_WFSI_IMPORT_TITLE = 0x2f,
+    IOCTL_WFSI_IMPORT_TITLE_CANCEL = 0x2f,
 
     IOCTL_WFSI_INIT = 0x81,
     IOCTL_WFSI_SET_DEVICE_NAME = 0x82,
