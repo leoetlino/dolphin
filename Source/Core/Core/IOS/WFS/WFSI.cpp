@@ -295,6 +295,11 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
     WARN_LOG(IOS, "IOCTL_WFSI_DELETE_TITLE: unimplemented");
     break;
 
+  case IOCTL_WFSI_GET_VERSION:
+    INFO_LOG(IOS, "IOCTL_WFSI_GET_VERSION");
+    Memory::Write_U32(0x20, request.buffer_out);
+    break;
+
   case IOCTL_WFSI_IMPORT_TITLE:
     WARN_LOG(IOS, "IOCTL_WFSI_IMPORT_TITLE: unimplemented");
     break;
