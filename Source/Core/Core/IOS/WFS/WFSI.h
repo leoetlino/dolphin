@@ -45,6 +45,10 @@ public:
 
 private:
   u32 GetTmd(u16 group_id, u32 title_id, u64 subtitle_id, u32 address, u32* size) const;
+
+  s32 CancelTitleImport();
+  s32 CancelPatchImport();
+
   std::string m_device_name;
 
   mbedtls_aes_context m_aes_ctx;
