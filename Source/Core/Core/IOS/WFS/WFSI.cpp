@@ -104,6 +104,16 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
     INFO_LOG(IOS, "IOCTL_WFSI_IMPORT_TITLE_INIT: patch type %d, continue install: %s", m_patch_type,
              m_continue_install ? "true" : "false");
 
+    if (m_patch_type == ImportType::Patch2)
+    {
+      const std::string content_dir =
+          StringFromFormat("/vol/%s/title/%s/%s/content", m_device_name.c_str(),
+                           m_group_id_str.c_str(), m_title_id_str.c_str());
+
+      File::Rename(WFS::NativePath(content_dir + "/default.dol"),
+                   WFS::NativePath(content_dir + "/_default.dol"));
+    }
+
     constexpr u32 MAX_TMD_SIZE = 0x4000;
     if (tmd_size > MAX_TMD_SIZE)
     {
@@ -132,6 +142,11 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
         static_cast<char>(m_title_id >> 8), static_cast<char>(m_title_id));
     m_group_id = m_tmd.GetGroupId();
     m_group_id_str = StringFromFormat("%c%c", m_group_id >> 8, m_group_id & 0xFF);
+
+    if (m_patch_type == ImportType::Patch)
+      CancelPatchImport();
+    else if (m_patch_type == ImportType::Title)
+      CancelTitleImport();
 
     break;
   }
