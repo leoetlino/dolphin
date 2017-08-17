@@ -67,14 +67,23 @@ private:
 
   std::string m_device_name;
 
+  // Context title. Set on IOCTL_INIT to the ES active title, but can be changed afterwards
+  // by ioctl 0x18.
+  // TODO(wfs): implement ioctl 0x18.
+  TitleId m_title_id;
+  GroupId m_group_id;
+
+  // Current active title (according to ES). Set on IOCTL_INIT.
+  TitleId m_es_title_id;
+  GroupId m_es_group_id;
+
   mbedtls_aes_context m_aes_ctx;
   u8 m_aes_key[0x10] = {};
   u8 m_aes_iv[0x10] = {};
 
-  IOS::ES::TMDReader m_tmd;
+  // TMD for the title that is being imported.
+  IOS::ES::TMDReader m_import_tmd;
   std::string m_base_extract_path;
-  TitleId m_title_id;
-  GroupId m_group_id;
 
   // Set on IMPORT_TITLE_INIT when the next profile application should not delete
   // temporary install files.
