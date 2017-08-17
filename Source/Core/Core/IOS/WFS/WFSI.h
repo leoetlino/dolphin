@@ -49,6 +49,22 @@ private:
   s32 CancelTitleImport();
   s32 CancelPatchImport();
 
+  struct TitleId
+  {
+    void Set(u64 value);
+    const char* c_str() const { return string.c_str(); }
+    u64 value;
+    std::string string;
+  };
+
+  struct GroupId
+  {
+    void Set(u16 value);
+    const char* c_str() const { return string.c_str(); }
+    u16 value;
+    std::string string;
+  };
+
   std::string m_device_name;
 
   mbedtls_aes_context m_aes_ctx;
@@ -57,10 +73,8 @@ private:
 
   IOS::ES::TMDReader m_tmd;
   std::string m_base_extract_path;
-  u64 m_title_id;
-  std::string m_title_id_str;
-  u16 m_group_id;
-  std::string m_group_id_str;
+  TitleId m_title_id;
+  GroupId m_group_id;
 
   // Set on IMPORT_TITLE_INIT when the next profile application should not delete
   // temporary install files.
