@@ -401,6 +401,9 @@ IPCCommandResult WFSI::IOCtl(const IOCtlRequest& request)
     break;
   }
 
+  case IOCTL_WFSI_NOOP:
+    break;
+
   case IOCTL_WFSI_LOAD_DOL:
   {
     std::string path =
