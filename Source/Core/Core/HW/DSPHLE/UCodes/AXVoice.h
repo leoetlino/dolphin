@@ -171,9 +171,10 @@ static bool acc_end_reached;
 void AcceleratorSetup(PB_TYPE* pb, u32* cur_addr)
 {
   acc_pb = pb;
-  acc_loop_addr = HILO_TO_32(pb->audio_addr.loop_addr);
-  acc_end_addr = HILO_TO_32(pb->audio_addr.end_addr);
+  acc_loop_addr = HILO_TO_32(pb->audio_addr.loop_addr) & 0x0fffffff;
+  acc_end_addr = HILO_TO_32(pb->audio_addr.end_addr) & 0x0fffffff;
   acc_cur_addr = cur_addr;
+  *acc_cur_addr = *acc_cur_addr & 0x0fffffff;
   acc_end_reached = false;
 }
 
