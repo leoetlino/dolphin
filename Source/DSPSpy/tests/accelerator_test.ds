@@ -36,8 +36,17 @@ test_accelerator_addrs_ex:
   lrs $AX0.L, @ACCAL
 
   ; Make the accelerator read memory
+  bloopi #0x60, end_of_loop
   lrs $AX1.H, @ARAM
-  lrs $AX1.H, @ARAM
+  ; AX1 -> new current position after read
+  lrs $AX1.H, @ACCAH
+  lrs $AX1.L, @ACCAL
+
+  call send_back
+
+end_of_loop:
+  nop
+
   ; AX1 -> new current position after read
   lrs $AX1.H, @ACCAH
   lrs $AX1.L, @ACCAL
@@ -55,99 +64,11 @@ test_accelerator_addrs:
 
 test_main:
   ; Test 1
-  lri $AC0.H, #0x19 ; 8-bit PCM
-  lri $AC0.M, #0x0000 ; start
-  lri $AC0.L, #0x1000 ; start
-  call test_accelerator_addrs
-
-  ; Test 2
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x0000 ; start
-  lri $AC0.L, #0x1000 ; start
-  call test_accelerator_addrs
-
-  ; Test 3
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x1000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 4
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x2000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 5
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x3000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 6
-  lri $AC0.H, #0xa ; 16-bit PCM
+  lri $AC0.H, #0x0
   lri $AC0.M, #0x3fff ; start
-  lri $AC0.L, #0xffff ; start
-  call test_accelerator_addrs
-
-  ; Test 7
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x4000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 8
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x5000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 9
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x6000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 10
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x7000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 11
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x7fff ; start
-  lri $AC0.L, #0xffff ; start
-  call test_accelerator_addrs
-
-  ; Test 12
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x8000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 13
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0x9000 ; start
-  lri $AC0.L, #0x0000 ; start
-  call test_accelerator_addrs
-
-  ; Test 14
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0xc000 ; start
-  lri $AC0.L, #0x1000 ; start
-  call test_accelerator_addrs
-
-  ; Test 15
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0xd000 ; start
-  lri $AC0.L, #0x1000 ; start
-  call test_accelerator_addrs
-
-  ; Test 16
-  lri $AC0.H, #0xa ; 16-bit PCM
-  lri $AC0.M, #0xffff ; start
-  lri $AC0.L, #0xffff ; start
-  call test_accelerator_addrs
+  lri $AC0.L, #0xfff0 ; start
+  lri $AC1.M, #0x0006 ; start
+  lri $AC1.L, #0x10ea ; start
+  call test_accelerator_addrs_ex
 
   jmp end_of_test
