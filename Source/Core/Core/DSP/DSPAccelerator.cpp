@@ -88,13 +88,6 @@ u16 ReadAccelerator(u32 start_address, u32 end_address, u32* current_address, u1
   {
   case 0x00:  // ADPCM audio
   {
-    // ADPCM decoding, not much to explain here.
-    if ((*current_address & 15) == 0)
-    {
-      *pred_scale = Host::ReadHostMemory((*current_address & ~15) >> 1);
-      *current_address += 2;
-    }
-
     switch (end_address & 15)
     {
     case 0:  // Tom and Jerry
@@ -126,6 +119,13 @@ u16 ReadAccelerator(u32 start_address, u32 end_address, u32* current_address, u1
     *yn2 = *yn1;
     *yn1 = val;
     *current_address += 1;
+
+    if ((*current_address & 15) == 0)
+    {
+      *pred_scale = Host::ReadHostMemory((*current_address & ~15) >> 1);
+      *current_address += 2;
+      step_size_bytes += 2;
+    }
     break;
   }
   case 0x0A:  // 16-bit PCM audio
