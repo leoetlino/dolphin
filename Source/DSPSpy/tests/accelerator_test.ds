@@ -3,9 +3,9 @@ include "dsp_base.inc"
 
 ; Test parameters
 lri $AC0.M, #0x0000 ; start
-lri $AC0.L, #0x0002 ; start
+lri $AC0.L, #0x0000 ; start
 lri $AC1.M, #0x0000 ; end
-lri $AC1.L, #0x0016 ; end
+lri $AC1.L, #0x0008 ; end
 
 ; Reset some registers
 lri $AC0.H, #0xffff
@@ -29,7 +29,9 @@ call load_hw_reg_to_regs
 call send_back ; check the accelerator regs before a read
 
 bloopi #40, end_of_loop
-  lrs $AX1.H, @ARAM
+  lri $AX1.H, #0xffff
+  sr @0xffdc, $AX1.H
+  lr $IX3, @ARAM
   call load_hw_reg_to_regs
   call send_back ; after a read
 end_of_loop:
@@ -45,7 +47,6 @@ load_hw_reg_to_regs:
   lr $IX0, @0xffdc ; yn2
   lr $IX1, @0xffdf ; unknown accelerator register
   lr $IX2, @0xfff9 ; undocumented, zero
-  lr $IX3, @0xfffa ; undocumented, zero
 
   lri $AC0.H, #0
   lrs $AC0.M, @ACSAH
