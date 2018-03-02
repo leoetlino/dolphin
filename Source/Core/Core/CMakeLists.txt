@@ -347,6 +347,12 @@ add_library(core
   IOS/FS/HostBackend/File.cpp
   IOS/FS/HostBackend/FS.cpp
   IOS/FS/HostBackend/FS.h
+  IOS/FS/ImageBackend/ECC.cpp
+  IOS/FS/ImageBackend/File.cpp
+  IOS/FS/ImageBackend/FS.cpp
+  IOS/FS/ImageBackend/LowLevel.cpp
+  IOS/FS/ImageBackend/SFFS.cpp
+  IOS/FS/ImageBackend/Util.cpp
   IOS/Network/ICMP.h
   IOS/Network/ICMPLin.cpp
   IOS/Network/MACUtils.cpp
