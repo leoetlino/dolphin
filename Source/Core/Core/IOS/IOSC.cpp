@@ -463,6 +463,15 @@ void IOSC::Sign(u8* sig_out, u8* ap_cert_out, u64 title_id, const u8* data, u32 
   std::copy(signature.cbegin(), signature.cend(), sig_out);
 }
 
+IOSC::BlockMacGenerator IOSC::GetNandMacGenerator() const
+{
+  const KeyEntry* entry = FindEntry(HANDLE_FS_MAC);
+  ASSERT(entry != nullptr && entry->data.size() == 20);
+  std::array<u8, 20> hmac_key;
+  std::copy(entry->data.begin(), entry->data.end(), hmac_key.begin());
+  return BlockMacGenerator{hmac_key};
+}
+
 constexpr std::array<u8, 512> ROOT_PUBLIC_KEY = {
     {0xF8, 0x24, 0x6C, 0x58, 0xBA, 0xE7, 0x50, 0x03, 0x01, 0xFB, 0xB7, 0xC2, 0xEB, 0xE0, 0x01,
      0x05, 0x71, 0xDA, 0x92, 0x23, 0x78, 0xF0, 0x51, 0x4E, 0xC0, 0x03, 0x1D, 0xD0, 0xD2, 0x1E,
@@ -683,5 +692,68 @@ void IOSC::KeyEntry::DoState(PointerWrap& p)
   p.Do(subtype);
   p.Do(data);
   p.Do(owner_mask);
+}
+
+class IOSC::BlockMacGenerator::Impl final
+{
+public:
+  explicit Impl(const std::array<u8, 20>& hmac_key) : m_hmac_key{hmac_key} { Reset(); }
+  void Reset()
+  {
+    std::array<u8, 0x40> xorpad{};
+    std::copy(m_hmac_key.cbegin(), m_hmac_key.cend(), xorpad.begin());
+    for (u8& byte : xorpad)
+    {
+      byte ^= 0x36;
+    }
+    mbedtls_sha1_starts(&m_hash_context);
+    mbedtls_sha1_update(&m_hash_context, xorpad.data(), xorpad.size());
+  }
+
+  void Update(const u8* input, size_t input_size)
+  {
+    mbedtls_sha1_update(&m_hash_context, input, input_size);
+  }
+
+  Hash FinaliseAndGetHash()
+  {
+    Hash temp_hash;
+    mbedtls_sha1_finish(&m_hash_context, temp_hash.data());
+
+    std::array<u8, 0x40> xorpad{};
+    std::copy(m_hmac_key.cbegin(), m_hmac_key.cend(), xorpad.begin());
+    for (u8& byte : xorpad)
+    {
+      byte ^= 0x5c;
+    }
+    mbedtls_sha1_starts(&m_hash_context);
+    mbedtls_sha1_update(&m_hash_context, xorpad.data(), xorpad.size());
+    mbedtls_sha1_update(&m_hash_context, temp_hash.data(), temp_hash.size());
+    Hash hash;
+    mbedtls_sha1_finish(&m_hash_context, hash.data());
+    Reset();
+    return hash;
+  }
+
+private:
+  mbedtls_sha1_context m_hash_context{};
+  std::array<u8, 20> m_hmac_key{};
+};
+
+IOSC::BlockMacGenerator::BlockMacGenerator(const std::array<u8, 20>& hmac_key)
+    : m_impl(std::make_unique<Impl>(hmac_key))
+{
+}
+
+IOSC::BlockMacGenerator::~BlockMacGenerator() = default;
+
+void IOSC::BlockMacGenerator::Update(const u8* input, size_t input_size)
+{
+  m_impl->Update(input, input_size);
+}
+
+IOSC::Hash IOSC::BlockMacGenerator::FinaliseAndGetHash()
+{
+  return m_impl->FinaliseAndGetHash();
 }
 }  // namespace IOS::HLE

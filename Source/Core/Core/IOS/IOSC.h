@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -125,6 +126,20 @@ class IOSC final
 {
 public:
   using Handle = u32;
+  using Hash = std::array<u8, 20>;
+
+  class BlockMacGenerator final
+  {
+  public:
+    explicit BlockMacGenerator(const std::array<u8, 20>& hmac_key);
+    ~BlockMacGenerator();
+    void Update(const u8* input, size_t input_size);
+    Hash FinaliseAndGetHash();
+
+  private:
+    class Impl;
+    std::unique_ptr<Impl> m_impl;
+  };
 
   enum class ConsoleType
   {
@@ -225,6 +240,9 @@ public:
   u32 GetDeviceId() const;
   CertECC GetDeviceCertificate() const;
   void Sign(u8* sig_out, u8* ap_cert_out, u64 title_id, const u8* data, u32 data_size) const;
+
+  // Equivalent of IOSC_GenerateBlockMAC.
+  BlockMacGenerator GetNandMacGenerator() const;
 
   void DoState(PointerWrap& p);
 
