@@ -556,9 +556,40 @@ void IOSC::LoadDefaultEntries(ConsoleType console_type)
                       Common::swap32(0x00010001), 0};
 }
 
+static std::vector<u8> ExtractKeysFromNandImage()
+{
+  if (!File::IsFile(File::GetUserPath(D_SESSION_WIIROOT_IDX)))
+    return {};
+
+  File::IOFile nand_file{File::GetUserPath(D_SESSION_WIIROOT_IDX), "rb"};
+  constexpr size_t NAND_DUMP_SIZE = 0x21000000;
+  constexpr size_t KEY_DUMP_SIZE = 0x400;
+  if (nand_file.GetSize() != NAND_DUMP_SIZE + KEY_DUMP_SIZE)
+    return {};
+
+  nand_file.Seek(NAND_DUMP_SIZE, SEEK_SET);
+  std::vector<u8> key_dump(KEY_DUMP_SIZE);
+  if (!nand_file.ReadBytes(key_dump.data(), key_dump.size()))
+  {
+    ERROR_LOG(IOS, "Failed to read key information from the NAND dump");
+    return {};
+  }
+  return key_dump;
+}
+
 void IOSC::LoadEntries()
 {
-  File::IOFile file{File::GetUserPath(D_WIIROOT_IDX) + "/keys.bin", "rb"};
+  const std::vector<u8> extracted_key_dump = ExtractKeysFromNandImage();
+
+  File::IOFile file{File::GetUserPath(D_WIIDATA_IDX) + "/keys.bin", "rb+"};
+  // Try to ensure the key dump and the NAND image match.
+  if (extracted_key_dump.empty())
+    file.WriteBytes(extracted_key_dump.data(), extracted_key_dump.size());
+
+  // Check for the legacy path.
+  if (!file)
+    file = File::IOFile{File::GetUserPath(D_WIIROOT_IDX) + "/keys.bin", "rb"};
+
   if (!file)
   {
     WARN_LOG(IOS, "keys.bin could not be found. Default values will be used.");
