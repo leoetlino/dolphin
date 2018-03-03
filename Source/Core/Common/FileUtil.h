@@ -153,6 +153,9 @@ bool Copy(const std::string& srcFilename, const std::string& destFilename);
 // creates an empty file filename, returns true on success
 bool CreateEmptyFile(const std::string& filename);
 
+// Create a file if it doesn't already exist and pre-allocate `size` bytes.
+bool AllocateFile(const std::string& name, size_t size);
+
 // Recursive or non-recursive list of files and directories under directory.
 FSTEntry ScanDirectoryTree(const std::string& directory, bool recursive);
 

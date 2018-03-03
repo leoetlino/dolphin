@@ -396,6 +396,68 @@ bool CreateEmptyFile(const std::string& filename)
   return true;
 }
 
+#ifdef __APPLE__
+static int posix_fallocate(int fd, off_t offset, off_t len)
+{
+  // MPL 1.1/GPL 2.0/LGPL 2.1
+  // The Initial Developer of the Original Code is Mozilla Foundation.
+  // Portions created by the Initial Developer are Copyright (C) 2010
+  // the Initial Developer. All Rights Reserved.
+  // Contributor(s): Taras Glek <tglek@mozilla.com>
+  //
+  // created from the OSX-specific code from Mozilla's mozilla::fallocation() function
+  // of which the licensing information is copied above.
+  // Adaptation (C) 2015,2016 R.J.V. Bertin
+  off_t c_test;
+  int ret;
+  if (!__builtin_saddll_overflow(offset, len, &c_test))
+  {
+    fstore_t store = {F_ALLOCATECONTIG, F_PEOFPOSMODE, 0, offset + len};
+    // Try to get a continous chunk of disk space
+    fcntl(fd, F_PREALLOCATE, &store);
+    if (ret < 0)
+    {
+      // OK, perhaps we are too fragmented, allocate non-continuous
+      store.fst_flags = F_ALLOCATEALL;
+      ret = fcntl(fd, F_PREALLOCATE, &store);
+      if (ret < 0)
+      {
+        return ret;
+      }
+    }
+    ret = ftruncate(fd, offset + len);
+  }
+  else
+  {
+    // offset+len would overflow.
+    ret = -1;
+  }
+  return ret;
+}
+#endif
+
+bool AllocateFile(const std::string& name, size_t size)
+{
+  INFO_LOG(COMMON, "AllocateFile: %s (%zu bytes)", name.c_str(), size);
+#ifdef _WIN32
+  HANDLE handle = CreateFile(UTF8ToTStr(name).c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+                             FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+  if (handle == INVALID_HANDLE_VALUE)
+    return false;
+  LARGE_INTEGER size;
+  size.QuadPart = size;
+  if (!SetFilePointerEx(handle, size, nullptr, FILE_BEGIN) || !SetEndOfFile(handle))
+    return false;
+  return CloseHandle(handle);
+#else
+  const int fd = open(name.c_str(), O_CREAT | O_RDWR, 0660);
+  if (fd < 0)
+    return false;
+  const int allocate_ret = posix_fallocate(fd, 0, size);
+  return close(fd) == 0 && allocate_ret == 0;
+#endif
+}
+
 // Recursive or non-recursive list of files and directories under directory.
 FSTEntry ScanDirectoryTree(const std::string& directory, bool recursive)
 {
