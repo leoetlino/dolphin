@@ -159,6 +159,7 @@ void CreateDirectories()
 {
   File::CreateFullPath(File::GetUserPath(D_RESOURCEPACK_IDX));
   File::CreateFullPath(File::GetUserPath(D_USER_IDX));
+  File::CreateFullPath(File::GetUserPath(D_WIIDATA_IDX));
   File::CreateFullPath(File::GetUserPath(D_CACHE_IDX));
   File::CreateFullPath(File::GetUserPath(D_COVERCACHE_IDX));
   File::CreateFullPath(File::GetUserPath(D_CONFIG_IDX));

@@ -25,6 +25,7 @@ enum
   D_GCUSER_IDX,
   D_WIIROOT_IDX,          // always points to User/Wii or global user-configured directory
   D_SESSION_WIIROOT_IDX,  // may point to minimal temporary directory for determinism
+  D_WIIDATA_IDX,          // Wii data (system files that don't belong in the NAND)
   D_CONFIG_IDX,           // global settings
   D_GAMESETTINGS_IDX,     // user-specified settings which override both the global and the default
                           // settings (per game)
