@@ -41,7 +41,6 @@ private:
   void ShowContextMenu(const QPoint&);
   void OpenContainingFolder();
   void OpenProperties();
-  void OpenSaveFolder();
   void OpenWiki();
   void SetDefaultISO();
   void DeleteFile();

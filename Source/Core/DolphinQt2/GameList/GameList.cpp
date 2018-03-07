@@ -218,7 +218,6 @@ void GameList::ShowContextMenu(const QPoint&)
 
   if (platform == DiscIO::Platform::WiiWAD || platform == DiscIO::Platform::WiiDisc)
   {
-    AddAction(menu, tr("Open Wii &save folder"), this, &GameList::OpenSaveFolder);
     AddAction(menu, tr("Export Wii save (Experimental)"), this, &GameList::ExportWiiSave);
     menu->addSeparator();
   }
@@ -376,12 +375,6 @@ void GameList::OpenContainingFolder()
 {
   QUrl url = QUrl::fromLocalFile(
       QFileInfo(QString::fromStdString(GetSelectedGame()->GetFilePath())).dir().absolutePath());
-  QDesktopServices::openUrl(url);
-}
-
-void GameList::OpenSaveFolder()
-{
-  QUrl url = QUrl::fromLocalFile(QString::fromStdString(GetSelectedGame()->GetWiiFSPath()));
   QDesktopServices::openUrl(url);
 }
 

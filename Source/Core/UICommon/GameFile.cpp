@@ -281,10 +281,4 @@ std::string GameFile::GetUniqueIdentifier() const
   return name + " (" + ss.str() + ")";
 }
 
-std::string GameFile::GetWiiFSPath() const
-{
-  ASSERT(DiscIO::IsWii(m_platform));
-  return Common::GetTitleDataPath(m_title_id, Common::FROM_CONFIGURED_ROOT);
-}
-
 }  // namespace UICommon

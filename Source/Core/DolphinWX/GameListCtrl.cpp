@@ -246,7 +246,6 @@ GameListCtrl::GameListCtrl(bool disable_scanning, wxWindow* parent, const wxWind
   Bind(wxEVT_MENU, &GameListCtrl::OnProperties, this, IDM_PROPERTIES);
   Bind(wxEVT_MENU, &GameListCtrl::OnWiki, this, IDM_GAME_WIKI);
   Bind(wxEVT_MENU, &GameListCtrl::OnOpenContainingFolder, this, IDM_OPEN_CONTAINING_FOLDER);
-  Bind(wxEVT_MENU, &GameListCtrl::OnOpenSaveFolder, this, IDM_OPEN_SAVE_FOLDER);
   Bind(wxEVT_MENU, &GameListCtrl::OnExportSave, this, IDM_EXPORT_SAVE);
   Bind(wxEVT_MENU, &GameListCtrl::OnSetDefaultISO, this, IDM_SET_DEFAULT_ISO);
   Bind(wxEVT_MENU, &GameListCtrl::OnCompressISO, this, IDM_COMPRESS_ISO);
@@ -845,8 +844,6 @@ void GameListCtrl::OnRightClick(wxMouseEvent& event)
       }
       if (platform == DiscIO::Platform::WiiDisc || platform == DiscIO::Platform::WiiWAD)
       {
-        auto* const open_save_folder_item =
-            popupMenu.Append(IDM_OPEN_SAVE_FOLDER, _("Open Wii &save folder"));
         auto* const export_save_item =
             popupMenu.Append(IDM_EXPORT_SAVE, _("Export Wii save (Experimental)"));
 
@@ -854,11 +851,7 @@ void GameListCtrl::OnRightClick(wxMouseEvent& event)
         // emulation is running, because this could result in the exported save being in
         // an inconsistent state; the emulated software can do *anything* to its data directory,
         // and we definitely do not want the user to touch anything in there if it's running.
-        for (auto* menu_item : {open_save_folder_item, export_save_item})
-        {
-          menu_item->Enable((!Core::IsRunning() || !SConfig::GetInstance().bWii) &&
-                            File::IsDirectory(selected_iso->GetWiiFSPath()));
-        }
+        export_save_item->Enable(!Core::IsRunning() || !SConfig::GetInstance().bWii);
       }
       popupMenu.Append(IDM_OPEN_CONTAINING_FOLDER, _("Open &containing folder"));
 
@@ -970,16 +963,6 @@ void GameListCtrl::OnOpenContainingFolder(wxCommandEvent& WXUNUSED(event))
   wxFileName path = wxFileName::FileName(StrToWxStr(iso->GetFilePath()));
   path.MakeAbsolute();
   WxUtils::Explore(WxStrToStr(path.GetPath()));
-}
-
-void GameListCtrl::OnOpenSaveFolder(wxCommandEvent& WXUNUSED(event))
-{
-  const UICommon::GameFile* iso = GetSelectedISO();
-  if (!iso)
-    return;
-  std::string path = iso->GetWiiFSPath();
-  if (!path.empty())
-    WxUtils::Explore(path);
 }
 
 void GameListCtrl::OnExportSave(wxCommandEvent& WXUNUSED(event))

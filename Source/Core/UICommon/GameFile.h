@@ -69,7 +69,6 @@ public:
   // 0 is the first disc, 1 is the second disc
   u8 GetDiscNumber() const { return m_disc_number; }
   std::string GetUniqueIdentifier() const;
-  std::string GetWiiFSPath() const;
   DiscIO::Region GetRegion() const { return m_region; }
   DiscIO::Country GetCountry() const { return m_country; }
   DiscIO::Platform GetPlatform() const { return m_platform; }

@@ -82,7 +82,6 @@ private:
   void OnWiki(wxCommandEvent& event);
   void OnNetPlayHost(wxCommandEvent& event);
   void OnOpenContainingFolder(wxCommandEvent& event);
-  void OnOpenSaveFolder(wxCommandEvent& event);
   void OnExportSave(wxCommandEvent& event);
   void OnSetDefaultISO(wxCommandEvent& event);
   void OnDeleteISO(wxCommandEvent& event);
