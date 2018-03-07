@@ -13,8 +13,6 @@
 #include <mbedtls/sha1.h>
 
 #include "Common/Align.h"
-#include "Common/File.h"
-#include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
@@ -28,19 +26,20 @@ namespace HLE
 {
 namespace Device
 {
-static ReturnCode WriteTicket(const IOS::ES::TicketReader& ticket)
+static ReturnCode WriteTicket(FS::FileSystem* fs, const IOS::ES::TicketReader& ticket)
 {
   const u64 title_id = ticket.GetTitleId();
 
-  const std::string ticket_path = Common::GetTicketFileName(title_id, Common::FROM_SESSION_ROOT);
-  File::CreateFullPath(ticket_path);
+  const std::string path = Common::GetTicketFileName(title_id);
+  fs->CreateFullPath(0, 0, path, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None);
+  fs->CreateFile(0, 0, path, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None);
 
-  File::IOFile ticket_file(ticket_path, "wb");
-  if (!ticket_file)
-    return ES_EIO;
+  const auto fd = fs->OpenFile(0, 0, path, FS::Mode::Write);
+  if (!fd)
+    return static_cast<ReturnCode>(FS::ConvertResult(fd.Error()));
 
   const std::vector<u8>& raw_ticket = ticket.GetBytes();
-  return ticket_file.WriteBytes(raw_ticket.data(), raw_ticket.size()) ? IPC_SUCCESS : ES_EIO;
+  return fs->WriteFile(*fd, raw_ticket.data(), raw_ticket.size()) ? IPC_SUCCESS : ES_EIO;
 }
 
 void ES::TitleImportExportContext::DoState(PointerWrap& p)
@@ -84,7 +83,7 @@ ReturnCode ES::ImportTicket(const std::vector<u8>& ticket_bytes, const std::vect
   if (verify_ret != IPC_SUCCESS)
     return verify_ret;
 
-  const ReturnCode write_ret = WriteTicket(ticket);
+  const ReturnCode write_ret = WriteTicket(m_ios.GetFS().get(), ticket);
   if (write_ret != IPC_SUCCESS)
     return write_ret;
 
@@ -155,7 +154,7 @@ ReturnCode ES::ImportTmd(Context& context, const std::vector<u8>& tmd_bytes)
   if (ret != IPC_SUCCESS)
     return ret;
 
-  if (!InitImport(context.title_import_export.tmd.GetTitleId()))
+  if (!InitImport(context.title_import_export.tmd))
     return ES_EIO;
 
   ret =
@@ -237,7 +236,7 @@ ReturnCode ES::ImportTitleInit(Context& context, const std::vector<u8>& tmd_byte
   if (ret != IPC_SUCCESS)
     return ret;
 
-  if (!InitImport(context.title_import_export.tmd.GetTitleId()))
+  if (!InitImport(context.title_import_export.tmd))
     return ES_EIO;
 
   context.title_import_export.valid = true;
@@ -371,7 +370,7 @@ ReturnCode ES::ImportContentEnd(Context& context, u32 content_fd)
   std::string content_path;
   if (content_info.IsShared())
   {
-    IOS::ES::SharedContentMap shared_content{Common::FROM_SESSION_ROOT};
+    IOS::ES::SharedContentMap shared_content{m_ios.GetFS().get()};
     content_path = shared_content.AddSharedContent(content_info.sha1);
   }
   else
@@ -379,26 +378,28 @@ ReturnCode ES::ImportContentEnd(Context& context, u32 content_fd)
     content_path = GetImportContentPath(context.title_import_export.tmd.GetTitleId(),
                                         context.title_import_export.content.id);
   }
-  File::CreateFullPath(content_path);
 
   const std::string temp_path =
-      Common::RootUserPath(Common::FROM_SESSION_ROOT) +
-      StringFromFormat("/tmp/%08x.app", context.title_import_export.content.id);
-  File::CreateFullPath(temp_path);
+      "/tmp/" + content_path.substr(content_path.find_last_of('/') + 1, std::string::npos);
+
+  const auto fs = m_ios.GetFS();
+  fs->CreateFile(0, 0, temp_path, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None);
 
   {
-    File::IOFile file(temp_path, "wb");
-    if (!file.WriteBytes(decrypted_data.data(), content_info.size))
+    const auto fd = fs->OpenFile(0, 0, temp_path, FS::Mode::Write);
+    if (!fd || !fs->WriteFile(*fd, decrypted_data.data(), content_info.size))
     {
       ERROR_LOG(IOS_ES, "ImportContentEnd: Failed to write to %s", temp_path.c_str());
       return ES_EIO;
     }
   }
 
-  if (!File::Rename(temp_path, content_path))
+  const FS::ResultCode rename_result = fs->Rename(0, 0, temp_path, content_path);
+  if (rename_result != FS::ResultCode::Success)
   {
+    fs->Delete(0, 0, temp_path);
     ERROR_LOG(IOS_ES, "ImportContentEnd: Failed to move content to %s", content_path.c_str());
-    return ES_EIO;
+    return static_cast<ReturnCode>(FS::ConvertResult(rename_result));
   }
 
   context.title_import_export.content = {};
@@ -422,7 +423,7 @@ ReturnCode ES::ImportTitleDone(Context& context)
   // Make sure all listed, non-optional contents have been imported.
   const u64 title_id = context.title_import_export.tmd.GetTitleId();
   const std::vector<IOS::ES::Content> contents = context.title_import_export.tmd.GetContents();
-  const IOS::ES::SharedContentMap shared_content_map{Common::FROM_SESSION_ROOT};
+  const IOS::ES::SharedContentMap shared_content_map{m_ios.GetFS().get()};
   const bool has_all_required_contents =
       std::all_of(contents.cbegin(), contents.cend(), [&](const IOS::ES::Content& content) {
         if (content.IsOptional())
@@ -433,8 +434,9 @@ ReturnCode ES::ImportTitleDone(Context& context)
 
         // Note: the import hasn't been finalised yet, so the whole title directory
         // is still in /import, not /title.
-        return File::Exists(Common::GetImportTitlePath(title_id, Common::FROM_SESSION_ROOT) +
-                            StringFromFormat("/content/%08x.app", content.id));
+        const std::string path = Common::GetImportTitlePath(title_id) +
+                                 StringFromFormat("/content/%08x.app", content.id);
+        return m_ios.GetFS()->GetMetadata(0, 0, path).Succeeded();
       });
   if (!has_all_required_contents)
     return ES_EINVAL;
@@ -495,17 +497,8 @@ ReturnCode ES::DeleteTitle(u64 title_id)
   if (!CanDeleteTitle(title_id))
     return ES_EINVAL;
 
-  const std::string title_dir = Common::GetTitlePath(title_id, Common::FROM_SESSION_ROOT);
-  if (!File::IsDirectory(title_dir))
-    return FS_ENOENT;
-
-  if (!File::DeleteDirRecursively(title_dir))
-  {
-    ERROR_LOG(IOS_ES, "DeleteTitle: Failed to delete title directory: %s", title_dir.c_str());
-    return FS_EACCESS;
-  }
-
-  return IPC_SUCCESS;
+  const std::string title_dir = Common::GetTitlePath(title_id);
+  return static_cast<ReturnCode>(FS::ConvertResult(m_ios.GetFS()->Delete(0, 0, title_dir)));
 }
 
 IPCCommandResult ES::DeleteTitle(const IOCtlVRequest& request)
@@ -532,24 +525,25 @@ ReturnCode ES::DeleteTicket(const u8* ticket_view)
   ticket.DeleteTicket(ticket_id);
 
   const std::vector<u8>& new_ticket = ticket.GetBytes();
-  const std::string ticket_path = Common::GetTicketFileName(title_id, Common::FROM_SESSION_ROOT);
+  const std::string ticket_path = Common::GetTicketFileName(title_id);
+  if (!new_ticket.empty())
   {
-    File::IOFile ticket_file(ticket_path, "wb");
-    if (!ticket_file || !ticket_file.WriteBytes(new_ticket.data(), new_ticket.size()))
+    const auto fd = m_ios.GetFS()->OpenFile(0, 0, ticket_path, FS::Mode::ReadWrite);
+    if (!fd || !m_ios.GetFS()->WriteFile(*fd, new_ticket.data(), new_ticket.size()))
       return ES_EIO;
   }
-
-  // Delete the ticket file if it is now empty.
-  if (new_ticket.empty())
-    File::Delete(ticket_path);
+  else
+  {
+    // Delete the ticket file if it is now empty.
+    m_ios.GetFS()->Delete(0, 0, ticket_path);
+  }
 
   // Delete the ticket directory if it is now empty.
   const std::string ticket_parent_dir =
-      Common::RootUserPath(Common::FROM_CONFIGURED_ROOT) +
       StringFromFormat("/ticket/%08x", static_cast<u32>(title_id >> 32));
-  const auto ticket_parent_dir_entries = File::ScanDirectoryTree(ticket_parent_dir, false);
-  if (ticket_parent_dir_entries.children.empty())
-    File::DeleteDir(ticket_parent_dir);
+  const auto ticket_parent_dir_entries = m_ios.GetFS()->ReadDirectory(0, 0, ticket_parent_dir);
+  if (ticket_parent_dir_entries && ticket_parent_dir_entries->empty())
+    m_ios.GetFS()->Delete(0, 0, ticket_parent_dir);
 
   return IPC_SUCCESS;
 }
@@ -569,14 +563,15 @@ ReturnCode ES::DeleteTitleContent(u64 title_id) const
   if (!CanDeleteTitle(title_id))
     return ES_EINVAL;
 
-  const std::string content_dir = Common::GetTitleContentPath(title_id, Common::FROM_SESSION_ROOT);
-  if (!File::IsDirectory(content_dir))
-    return FS_ENOENT;
+  const std::string content_dir = Common::GetTitleContentPath(title_id);
+  const auto files = m_ios.GetFS()->ReadDirectory(0, 0, content_dir);
+  if (!files)
+    return static_cast<ReturnCode>(FS::ConvertResult(files.Error()));
 
-  for (const auto& file : File::ScanDirectoryTree(content_dir, false).children)
+  for (const std::string& file_name : *files)
   {
-    if (file.virtualName.size() == 12 && file.virtualName.compare(8, 4, ".app") == 0)
-      File::Delete(file.physicalName);
+    if (file_name.size() == 12 && file_name.compare(8, 4, ".app") == 0)
+      m_ios.GetFS()->Delete(0, 0, content_dir + "/" + file_name);
   }
 
   return IPC_SUCCESS;
@@ -602,13 +597,9 @@ ReturnCode ES::DeleteContent(u64 title_id, u32 content_id) const
   if (!tmd.FindContentById(content_id, &content))
     return ES_EINVAL;
 
-  if (!File::Delete(Common::GetTitleContentPath(title_id, Common::FROM_SESSION_ROOT) +
-                    StringFromFormat("%08x.app", content_id)))
-  {
-    return FS_ENOENT;
-  }
-
-  return IPC_SUCCESS;
+  const auto result = m_ios.GetFS()->Delete(0, 0, Common::GetTitleContentPath(title_id) +
+                                                      StringFromFormat("/%08x.app", content_id));
+  return static_cast<ReturnCode>(FS::ConvertResult(result));
 }
 
 IPCCommandResult ES::DeleteContent(const IOCtlVRequest& request)
@@ -783,7 +774,7 @@ IPCCommandResult ES::ExportTitleDone(Context& context, const IOCtlVRequest& requ
 
 ReturnCode ES::DeleteSharedContent(const std::array<u8, 20>& sha1) const
 {
-  IOS::ES::SharedContentMap map{Common::FromWhichRoot::FROM_SESSION_ROOT};
+  IOS::ES::SharedContentMap map{m_ios.GetFS().get()};
   const auto content_path = map.GetFilenameFromSHA1(sha1);
   if (!content_path)
     return ES_EINVAL;
@@ -808,8 +799,9 @@ ReturnCode ES::DeleteSharedContent(const std::array<u8, 20>& sha1) const
     return ES_EINVAL;
 
   // Delete the shared content and update the content map.
-  if (!File::Delete(*content_path))
-    return FS_ENOENT;
+  const auto delete_result = m_ios.GetFS()->Delete(0, 0, *content_path);
+  if (delete_result != FS::ResultCode::Success)
+    return static_cast<ReturnCode>(FS::ConvertResult(delete_result));
 
   if (!map.DeleteSharedContent(sha1))
     return ES_EIO;

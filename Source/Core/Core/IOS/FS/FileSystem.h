@@ -207,5 +207,6 @@ enum class Location
 };
 
 std::unique_ptr<FileSystem> MakeFileSystem(Location location = Location::Session);
+s32 ConvertResult(ResultCode code);
 
 }  // namespace IOS::HLE::FS

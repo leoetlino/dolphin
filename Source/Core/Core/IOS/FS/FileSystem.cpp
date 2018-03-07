@@ -76,4 +76,11 @@ ResultCode FileSystem::CreateFullPath(Uid uid, Gid gid, const std::string& path,
     ++position;
   }
 }
+
+s32 ConvertResult(ResultCode code)
+{
+  if (code == ResultCode::Success)
+    return 0;
+  return -(static_cast<s32>(code) + 100);
+}
 }  // namespace IOS::HLE::FS

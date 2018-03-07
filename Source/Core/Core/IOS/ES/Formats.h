@@ -24,6 +24,13 @@ class PointerWrap;
 
 namespace IOS
 {
+namespace HLE
+{
+namespace FS
+{
+class FileSystem;
+}
+}
 namespace ES
 {
 enum class TitleType : u32
@@ -249,7 +256,7 @@ public:
 class SharedContentMap final
 {
 public:
-  explicit SharedContentMap(Common::FromWhichRoot root);
+  explicit SharedContentMap(HLE::FS::FileSystem* fs);
   ~SharedContentMap();
 
   std::optional<std::string> GetFilenameFromSHA1(const std::array<u8, 20>& sha1) const;
@@ -261,23 +268,22 @@ private:
   bool WriteEntries() const;
 
   struct Entry;
-  Common::FromWhichRoot m_root;
+  HLE::FS::FileSystem* m_fs;
   u32 m_last_id = 0;
-  std::string m_file_path;
   std::vector<Entry> m_entries;
 };
 
 class UIDSys final
 {
 public:
-  explicit UIDSys(Common::FromWhichRoot root);
+  explicit UIDSys(HLE::FS::FileSystem* fs);
 
   u32 GetUIDFromTitle(u64 title_id) const;
   u32 GetOrInsertUIDForTitle(u64 title_id);
   u32 GetNextUID() const;
 
 private:
-  std::string m_file_path;
+  HLE::FS::FileSystem* m_fs;
   std::map<u32, u64> m_entries;
 };
 

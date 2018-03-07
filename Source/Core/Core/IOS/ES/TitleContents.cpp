@@ -33,11 +33,12 @@ s32 ES::OpenContent(const IOS::ES::TMDReader& tmd, u16 content_index, u32 uid)
     if (entry.m_opened)
       continue;
 
-    if (!entry.m_file.Open(GetContentPath(title_id, content), "rb"))
-      return FS_ENOENT;
+    auto fd = m_ios.GetFS()->OpenFile(0, 0, GetContentPath(title_id, content), FS::Mode::Read);
+    if (!fd)
+      return FS::ConvertResult(fd.Error());
 
     entry.m_opened = true;
-    entry.m_position = 0;
+    entry.m_fd = fd->Release();
     entry.m_content = content;
     entry.m_title_id = title_id;
     entry.m_uid = uid;
@@ -78,7 +79,7 @@ IPCCommandResult ES::OpenActiveTitleContent(u32 caller_uid, const IOCtlVRequest&
   if (!m_title_context.active)
     return GetDefaultReply(ES_EINVAL);
 
-  IOS::ES::UIDSys uid_map{Common::FROM_SESSION_ROOT};
+  IOS::ES::UIDSys uid_map{m_ios.GetFS().get()};
   const u32 uid = uid_map.GetOrInsertUIDForTitle(m_title_context.tmd.GetTitleId());
   if (caller_uid != 0 && caller_uid != uid)
     return GetDefaultReply(ES_EACCES);
@@ -88,30 +89,15 @@ IPCCommandResult ES::OpenActiveTitleContent(u32 caller_uid, const IOCtlVRequest&
 
 s32 ES::ReadContent(u32 cfd, u8* buffer, u32 size, u32 uid)
 {
-  if (cfd >= m_content_table.size())
+  if (!m_title_context.active || cfd >= m_content_table.size())
     return ES_EINVAL;
-  OpenedContent& entry = m_content_table[cfd];
 
+  const OpenedContent& entry = m_content_table[cfd];
   if (entry.m_uid != uid)
     return ES_EACCES;
-  if (!entry.m_opened)
-    return IPC_EINVAL;
 
-  // XXX: make this reuse the FS code... ES just does a simple "IOS_Read" call here
-  //      instead of all this duplicated filesystem logic.
-
-  if (entry.m_position + size > entry.m_file.GetSize())
-    size = static_cast<u32>(entry.m_file.GetSize()) - entry.m_position;
-
-  entry.m_file.Seek(entry.m_position, SEEK_SET);
-  if (!entry.m_file.ReadBytes(buffer, size))
-  {
-    ERROR_LOG(IOS_ES, "ES: failed to read %u bytes from %u!", size, entry.m_position);
-    return ES_SHORT_READ;
-  }
-
-  entry.m_position += size;
-  return size;
+  const FS::Result<u32> result = m_ios.GetFS()->ReadBytesFromFile(entry.m_fd, buffer, size);
+  return result.Succeeded() ? *result : FS::ConvertResult(result.Error());
 }
 
 IPCCommandResult ES::ReadContent(u32 uid, const IOCtlVRequest& request)
@@ -128,18 +114,17 @@ IPCCommandResult ES::ReadContent(u32 uid, const IOCtlVRequest& request)
 
 ReturnCode ES::CloseContent(u32 cfd, u32 uid)
 {
-  if (cfd >= m_content_table.size())
+  if (!m_title_context.active || cfd >= m_content_table.size())
     return ES_EINVAL;
 
   OpenedContent& entry = m_content_table[cfd];
   if (entry.m_uid != uid)
     return ES_EACCES;
-  if (!entry.m_opened)
-    return IPC_EINVAL;
 
+  const FS::ResultCode close_result = m_ios.GetFS()->Close(entry.m_fd);
   entry = {};
   INFO_LOG(IOS_ES, "CloseContent: CFD %u", cfd);
-  return IPC_SUCCESS;
+  return static_cast<ReturnCode>(FS::ConvertResult(close_result));
 }
 
 IPCCommandResult ES::CloseContent(u32 uid, const IOCtlVRequest& request)
@@ -153,35 +138,15 @@ IPCCommandResult ES::CloseContent(u32 uid, const IOCtlVRequest& request)
 
 s32 ES::SeekContent(u32 cfd, u32 offset, SeekMode mode, u32 uid)
 {
-  if (cfd >= m_content_table.size())
+  if (!m_title_context.active || cfd >= m_content_table.size())
     return ES_EINVAL;
 
-  OpenedContent& entry = m_content_table[cfd];
+  const OpenedContent& entry = m_content_table[cfd];
   if (entry.m_uid != uid)
     return ES_EACCES;
-  if (!entry.m_opened)
-    return IPC_EINVAL;
 
-  // XXX: This should be a simple IOS_Seek.
-  switch (mode)
-  {
-  case SeekMode::IOS_SEEK_SET:
-    entry.m_position = offset;
-    break;
-
-  case SeekMode::IOS_SEEK_CUR:
-    entry.m_position += offset;
-    break;
-
-  case SeekMode::IOS_SEEK_END:
-    entry.m_position = static_cast<u32>(entry.m_content.size) + offset;
-    break;
-
-  default:
-    return FS_EINVAL;
-  }
-
-  return entry.m_position;
+  const FS::Result<u32> result = m_ios.GetFS()->SeekFile(entry.m_fd, offset, FS::SeekMode(mode));
+  return result.Succeeded() ? *result : FS::ConvertResult(result.Error());
 }
 
 IPCCommandResult ES::SeekContent(u32 uid, const IOCtlVRequest& request)

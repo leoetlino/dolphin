@@ -14,8 +14,6 @@
 #include <mbedtls/sha1.h>
 
 #include "Common/ChunkFile.h"
-#include "Common/File.h"
-#include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
@@ -40,41 +38,43 @@ static u64 s_title_to_launch;
 struct DirectoryToCreate
 {
   const char* path;
-  u32 attributes;
-  OpenMode owner_perm;
-  OpenMode group_perm;
-  OpenMode other_perm;
+  FS::Uid uid;
+  FS::Gid gid;
+  FS::FileAttribute attribute;
+  FS::Mode owner_mode;
+  FS::Mode group_mode;
+  FS::Mode other_mode;
 };
 
 constexpr std::array<DirectoryToCreate, 9> s_directories_to_create = {{
-    {"/sys", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_NONE},
-    {"/ticket", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_NONE},
-    {"/title", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_READ},
-    {"/shared1", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_NONE},
-    {"/shared2", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW},
-    {"/tmp", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW},
-    {"/import", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_NONE},
-    {"/meta", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_RW},
-    {"/wfs", 0, OpenMode::IOS_OPEN_RW, OpenMode::IOS_OPEN_NONE, OpenMode::IOS_OPEN_NONE},
+    {"/sys", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None},
+    {"/ticket", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None},
+    {"/title", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::Read},
+    {"/shared1", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None},
+    {"/shared2", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite},
+    {"/tmp", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite},
+    {"/import", 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None},
+    {"/meta", 0x1000, 1, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite},
+    {"/wfs", PID_UNKNOWN, PID_UNKNOWN, 0, FS::Mode::ReadWrite, FS::Mode::None, FS::Mode::None},
 }};
 
 ES::ES(Kernel& ios, const std::string& device_name) : Device(ios, device_name)
 {
   for (const auto& directory : s_directories_to_create)
   {
-    const std::string path = Common::RootUserPath(Common::FROM_SESSION_ROOT) + directory.path;
+    const auto result = m_ios.GetFS()->CreateDirectory(0, 0, directory.path, directory.attribute,
+                                                       directory.owner_mode, directory.group_mode,
+                                                       directory.other_mode);
+    if (result != FS::ResultCode::Success && result != FS::ResultCode::AlreadyExists)
+      ERROR_LOG(IOS_ES, "Failed to create %s: error %d", directory.path, FS::ConvertResult(result));
 
-    // Create the directory if it does not exist.
-    if (File::IsDirectory(path))
-      continue;
-
-    File::CreateFullPath(path);
-    if (File::CreateDir(path))
-      INFO_LOG(IOS_ES, "Created %s (at %s)", directory.path, path.c_str());
-    else
-      ERROR_LOG(IOS_ES, "Failed to create %s (at %s)", directory.path, path.c_str());
-
-    // TODO: Set permissions.
+    const auto metadata = m_ios.GetFS()->GetMetadata(0, 0, directory.path);
+    if (metadata && (metadata->uid != directory.uid || metadata->gid != directory.gid))
+    {
+      m_ios.GetFS()->SetMetadata(0, directory.path, directory.uid, directory.gid,
+                                 directory.attribute, directory.owner_mode, directory.group_mode,
+                                 directory.other_mode);
+    }
   }
 
   FinishAllStaleImports();
@@ -161,7 +161,7 @@ IPCCommandResult ES::GetTitleId(const IOCtlVRequest& request)
 
 static bool UpdateUIDAndGID(Kernel& kernel, const IOS::ES::TMDReader& tmd)
 {
-  IOS::ES::UIDSys uid_sys{Common::FromWhichRoot::FROM_SESSION_ROOT};
+  IOS::ES::UIDSys uid_sys{kernel.GetFS().get()};
   const u64 title_id = tmd.GetTitleId();
   const u32 uid = uid_sys.GetOrInsertUIDForTitle(title_id);
   if (!uid)
@@ -174,9 +174,9 @@ static bool UpdateUIDAndGID(Kernel& kernel, const IOS::ES::TMDReader& tmd)
   return true;
 }
 
-static ReturnCode CheckIsAllowedToSetUID(const u32 caller_uid)
+static ReturnCode CheckIsAllowedToSetUID(FS::FileSystem* fs, const u32 caller_uid)
 {
-  IOS::ES::UIDSys uid_map{Common::FromWhichRoot::FROM_SESSION_ROOT};
+  IOS::ES::UIDSys uid_map{fs};
   const u32 system_menu_uid = uid_map.GetOrInsertUIDForTitle(Titles::SYSTEM_MENU);
   if (!system_menu_uid)
     return ES_SHORT_READ;
@@ -190,7 +190,7 @@ IPCCommandResult ES::SetUID(u32 uid, const IOCtlVRequest& request)
 
   const u64 title_id = Memory::Read_U64(request.in_vectors[0].address);
 
-  const s32 ret = CheckIsAllowedToSetUID(uid);
+  const s32 ret = CheckIsAllowedToSetUID(m_ios.GetFS().get(), uid);
   if (ret < 0)
   {
     ERROR_LOG(IOS_ES, "SetUID: Permission check failed with error %d", ret);
@@ -338,19 +338,7 @@ void ES::DoState(PointerWrap& p)
 {
   Device::DoState(p);
 
-  for (auto& entry : m_content_table)
-  {
-    p.Do(entry.m_opened);
-    p.Do(entry.m_title_id);
-    p.Do(entry.m_content);
-    p.Do(entry.m_position);
-    p.Do(entry.m_uid);
-    if (entry.m_opened)
-      entry.m_opened = entry.m_file.Open(GetContentPath(entry.m_title_id, entry.m_content), "rb");
-    else
-      entry.m_file.Close();
-  }
-
+  p.Do(m_content_table);
   m_title_context.DoState(p);
 
   for (auto& context : m_contexts)
@@ -623,6 +611,30 @@ IPCCommandResult ES::DIVerify(const IOCtlVRequest& request)
   return GetDefaultReply(ES_EINVAL);
 }
 
+static s32 WriteTmdForDiVerify(FS::FileSystem* fs, const IOS::ES::TMDReader& tmd)
+{
+  const std::string temp_path = "/tmp/title.tmd";
+  fs->Delete(0, 0, temp_path);
+  fs->CreateFile(0, 0, temp_path, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None);
+  {
+    const auto fd = fs->OpenFile(0, 0, temp_path, FS::Mode::Write);
+    if (!fd)
+      return FS::ConvertResult(fd.Error());
+    if (!fs->WriteBytesToFile(*fd, tmd.GetBytes().data(), tmd.GetBytes().size()))
+      return ES_EIO;
+  }
+
+  const std::string tmd_dir = Common::GetTitleContentPath(tmd.GetTitleId());
+  const std::string tmd_path = Common::GetTMDFileName(tmd.GetTitleId());
+  const auto result = fs->CreateFullPath(0, 0, tmd_path, 0, FS::Mode::ReadWrite,
+                                         FS::Mode::ReadWrite, FS::Mode::Read);
+  if (result != FS::ResultCode::Success)
+    return FS::ConvertResult(result);
+
+  fs->SetMetadata(0, tmd_dir, 0, 0, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None);
+  return FS::ConvertResult(fs->Rename(0, 0, temp_path, tmd_path));
+}
+
 s32 ES::DIVerify(const IOS::ES::TMDReader& tmd, const IOS::ES::TicketReader& ticket)
 {
   m_title_context.Clear();
@@ -637,20 +649,17 @@ s32 ES::DIVerify(const IOS::ES::TMDReader& tmd, const IOS::ES::TicketReader& tic
   m_title_context.Update(tmd, ticket);
   INFO_LOG(IOS_ES, "ES_DIVerify: Title context changed: %016" PRIx64, tmd.GetTitleId());
 
-  std::string tmd_path = Common::GetTMDFileName(tmd.GetTitleId(), Common::FROM_SESSION_ROOT);
+  // XXX: We are supposed to verify the TMD and ticket here, but cannot because
+  // this may cause issues with custom/patched games.
 
-  File::CreateFullPath(tmd_path);
-  File::CreateFullPath(Common::GetTitleDataPath(tmd.GetTitleId(), Common::FROM_SESSION_ROOT));
-
-  if (!File::Exists(tmd_path))
+  auto fs = m_ios.GetFS();
+  if (!FindInstalledTMD(tmd.GetTitleId()).IsValid())
   {
-    // XXX: We are supposed to verify the TMD and ticket here, but cannot because
-    // this may cause issues with custom/patched games.
-
-    File::IOFile tmd_file(tmd_path, "wb");
-    const std::vector<u8>& tmd_bytes = tmd.GetBytes();
-    if (!tmd_file.WriteBytes(tmd_bytes.data(), tmd_bytes.size()))
-      ERROR_LOG(IOS_ES, "DIVerify failed to write disc TMD to NAND.");
+    if (const s32 ret = WriteTmdForDiVerify(fs.get(), tmd))
+    {
+      ERROR_LOG(IOS_ES, "DiVerify failed to write disc TMD to NAND.");
+      return ret;
+    }
   }
 
   if (!UpdateUIDAndGID(*GetIOS(), m_title_context.tmd))
@@ -658,7 +667,11 @@ s32 ES::DIVerify(const IOS::ES::TMDReader& tmd, const IOS::ES::TicketReader& tic
     return ES_SHORT_READ;
   }
 
-  return IPC_SUCCESS;
+  const std::string data_dir = Common::GetTitleDataPath(tmd.GetTitleId());
+  // Might already exist, so we only need to check whether the second operation succeeded.
+  fs->CreateDirectory(0, 0, data_dir, 0, FS::Mode::ReadWrite, FS::Mode::None, FS::Mode::None);
+  return FS::ConvertResult(fs->SetMetadata(0, data_dir, m_ios.GetUidForPPC(), m_ios.GetGidForPPC(),
+                                           0, FS::Mode::ReadWrite, FS::Mode::None, FS::Mode::None));
 }
 
 constexpr u32 FIRST_PPC_UID = 0x1000;
@@ -828,13 +841,12 @@ ReturnCode ES::ReadCertStore(std::vector<u8>* buffer) const
   if (!SConfig::GetInstance().m_enable_signature_checks)
     return IPC_SUCCESS;
 
-  const std::string store_path = Common::RootUserPath(Common::FROM_SESSION_ROOT) + "/sys/cert.sys";
-  File::IOFile store_file{store_path, "rb"};
-  if (!store_file)
-    return FS_ENOENT;
+  const auto fd = m_ios.GetFS()->OpenFile(0, 0, "/sys/cert.sys", FS::Mode::Read);
+  if (!fd)
+    return static_cast<ReturnCode>(FS::ConvertResult(fd.Error()));
 
-  buffer->resize(store_file.GetSize());
-  if (!store_file.ReadBytes(buffer->data(), buffer->size()))
+  buffer->resize(m_ios.GetFS()->GetFileStatus(*fd)->size);
+  if (!m_ios.GetFS()->ReadFile(*fd, buffer->data(), buffer->size()))
     return ES_SHORT_READ;
   return IPC_SUCCESS;
 }
@@ -853,9 +865,13 @@ ReturnCode ES::WriteNewCertToStore(const IOS::ES::CertReader& cert)
   }
 
   // Otherwise, write the new cert at the end of the store.
-  const std::string store_path = Common::RootUserPath(Common::FROM_SESSION_ROOT) + "/sys/cert.sys";
-  File::IOFile store_file{store_path, "ab"};
-  if (!store_file || !store_file.WriteBytes(cert.GetBytes().data(), cert.GetBytes().size()))
+  m_ios.GetFS()->CreateFile(0, 0, "/sys/cert.sys", 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite,
+                            FS::Mode::None);
+  const auto fd = m_ios.GetFS()->OpenFile(0, 0, "/sys/cert.sys", FS::Mode::Write);
+  if (!fd)
+    return static_cast<ReturnCode>(FS::ConvertResult(fd.Error()));
+  const auto seek_ok = m_ios.GetFS()->SeekFile(*fd, 0, FS::SeekMode::End);
+  if (!seek_ok || !m_ios.GetFS()->WriteFile(*fd, cert.GetBytes().data(), cert.GetBytes().size()))
     return ES_EIO;
   return IPC_SUCCESS;
 }
