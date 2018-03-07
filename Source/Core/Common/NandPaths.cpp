@@ -9,58 +9,47 @@
 #include <vector>
 
 #include "Common/CommonTypes.h"
-#include "Common/File.h"
-#include "Common/FileUtil.h"
-#include "Common/Logging/Log.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
-#include "Common/Swap.h"
 
 namespace Common
 {
-std::string RootUserPath(FromWhichRoot from)
+std::string GetImportTitlePath(u64 title_id)
 {
-  int idx = from == FROM_CONFIGURED_ROOT ? D_WIIROOT_IDX : D_SESSION_WIIROOT_IDX;
-  return File::GetUserPath(idx);
+  return StringFromFormat("/import/%08x/%08x", static_cast<u32>(title_id >> 32),
+                          static_cast<u32>(title_id));
 }
 
-std::string GetImportTitlePath(u64 title_id, FromWhichRoot from)
+std::string GetTicketFileName(u64 title_id)
 {
-  return RootUserPath(from) + StringFromFormat("/import/%08x/%08x",
-                                               static_cast<u32>(title_id >> 32),
-                                               static_cast<u32>(title_id));
+  return StringFromFormat("/ticket/%08x/%08x.tik", static_cast<u32>(title_id >> 32),
+                          static_cast<u32>(title_id));
 }
 
-std::string GetTicketFileName(u64 _titleID, FromWhichRoot from)
+std::string GetTitlePath(u64 title_id)
 {
-  return StringFromFormat("%s/ticket/%08x/%08x.tik", RootUserPath(from).c_str(),
-                          (u32)(_titleID >> 32), (u32)_titleID);
+  return StringFromFormat("/title/%08x/%08x", static_cast<u32>(title_id >> 32),
+                          static_cast<u32>(title_id));
 }
 
-std::string GetTitlePath(u64 title_id, FromWhichRoot from)
+std::string GetTitleDataPath(u64 title_id)
 {
-  return StringFromFormat("%s/title/%08x/%08x/", RootUserPath(from).c_str(),
-                          static_cast<u32>(title_id >> 32), static_cast<u32>(title_id));
+  return GetTitlePath(title_id) + "/data";
 }
 
-std::string GetTitleDataPath(u64 _titleID, FromWhichRoot from)
+std::string GetTitleContentPath(u64 title_id)
 {
-  return GetTitlePath(_titleID, from) + "data/";
+  return GetTitlePath(title_id) + "/content";
 }
 
-std::string GetTitleContentPath(u64 _titleID, FromWhichRoot from)
+std::string GetTMDFileName(u64 title_id)
 {
-  return GetTitlePath(_titleID, from) + "content/";
+  return GetTitleContentPath(title_id) + "/title.tmd";
 }
 
-std::string GetTMDFileName(u64 _titleID, FromWhichRoot from)
+bool IsTitlePath(const std::string& path, u64* title_id)
 {
-  return GetTitleContentPath(_titleID, from) + "title.tmd";
-}
-
-bool IsTitlePath(const std::string& path, FromWhichRoot from, u64* title_id)
-{
-  std::string expected_prefix = RootUserPath(from) + "/title/";
+  std::string expected_prefix = "/title/";
   if (!StringBeginsWith(path, expected_prefix))
   {
     return false;

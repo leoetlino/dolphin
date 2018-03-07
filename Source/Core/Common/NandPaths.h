@@ -12,25 +12,17 @@
 
 namespace Common
 {
-enum FromWhichRoot
-{
-  FROM_CONFIGURED_ROOT,  // not related to currently running game - use D_WIIROOT_IDX
-  FROM_SESSION_ROOT,     // request from currently running game - use D_SESSION_WIIROOT_IDX
-};
-
-std::string RootUserPath(FromWhichRoot from);
-
 // Returns /import/%08x/%08x. Intended for use by ES.
-std::string GetImportTitlePath(u64 title_id, FromWhichRoot from = FROM_SESSION_ROOT);
+std::string GetImportTitlePath(u64 title_id);
 
-std::string GetTicketFileName(u64 _titleID, FromWhichRoot from);
-std::string GetTitlePath(u64 title_id, FromWhichRoot from);
-std::string GetTitleDataPath(u64 _titleID, FromWhichRoot from);
-std::string GetTitleContentPath(u64 _titleID, FromWhichRoot from);
-std::string GetTMDFileName(u64 _titleID, FromWhichRoot from);
+std::string GetTicketFileName(u64 title_id);
+std::string GetTitlePath(u64 title_id);
+std::string GetTitleDataPath(u64 title_id);
+std::string GetTitleContentPath(u64 title_id);
+std::string GetTMDFileName(u64 title_id);
 
 // Returns whether a path is within an installed title's directory.
-bool IsTitlePath(const std::string& path, FromWhichRoot from, u64* title_id = nullptr);
+bool IsTitlePath(const std::string& path, u64* title_id = nullptr);
 
 // Escapes characters that are invalid or have special meanings in the host file system
 std::string EscapeFileName(const std::string& filename);
