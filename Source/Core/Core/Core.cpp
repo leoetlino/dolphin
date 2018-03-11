@@ -554,6 +554,13 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
   if (!CBoot::BootUp(std::move(boot)))
     return;
 
+  if (SConfig::GetInstance().bWii)
+    Core::InitializeFS();
+  Common::ScopeGuard fs_guard{[] {
+    if (SConfig::GetInstance().bWii)
+      Core::ShutdownFS();
+  }};
+
   // This adds the SyncGPU handler to CoreTiming, so now CoreTiming::Advance might block.
   Fifo::Prepare();
 

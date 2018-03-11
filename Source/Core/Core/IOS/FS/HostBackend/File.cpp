@@ -50,6 +50,8 @@ std::shared_ptr<File::IOFile> HostFileSystem::OpenHostFile(const std::string& ho
     // read/write functions below
     file = std::shared_ptr<File::IOFile>(new File::IOFile(host_path, "r+b"),
                                          deleter);  // Use the custom deleter from above.
+    if (!file->IsOpen())
+      file->Open(host_path, "rb");
 
     // Store a weak pointer to our newly opened file in the cache.
     m_open_files[host_path] = std::weak_ptr<File::IOFile>(file);
