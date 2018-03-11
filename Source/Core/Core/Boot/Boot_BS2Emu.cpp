@@ -9,8 +9,6 @@
 
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
-#include "Common/File.h"
-#include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
@@ -25,6 +23,7 @@
 #include "Core/HW/Memmap.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/ES/Formats.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "Core/IOS/IOS.h"
 #include "Core/PowerPC/PowerPC.h"
 
@@ -224,16 +223,21 @@ bool CBoot::SetupWiiMemory()
   auto entryPos = region_settings.find(SConfig::GetInstance().m_region);
   const RegionSetting& region_setting = entryPos->second;
 
+  const auto fs = IOS::HLE::GetIOS()->GetFS();
+
   SettingsHandler gen;
   std::string serno;
-  const std::string settings_file_path(
-      Common::GetTitleDataPath(Titles::SYSTEM_MENU, Common::FROM_SESSION_ROOT) + WII_SETTING);
-  if (File::Exists(settings_file_path) && gen.Open(settings_file_path))
+  const std::string settings_file_path(Common::GetTitleDataPath(Titles::SYSTEM_MENU) + "/" +
+                                       WII_SETTING);
+  if (const auto fd =
+          fs->OpenFile(SYSMENU_UID, SYSMENU_GID, settings_file_path, IOS::HLE::FS::Mode::Read))
   {
-    serno = gen.GetValue("SERNO");
-    gen.Reset();
-
-    File::Delete(settings_file_path);
+    SettingsHandler::Buffer buffer;
+    if (fs->ReadFile(*fd, buffer.data(), buffer.size()))
+    {
+      gen.SetBytes(std::move(buffer));
+      serno = gen.GetValue("SERNO");
+    }
   }
 
   if (serno.empty() || serno == "000000000")
@@ -250,6 +254,7 @@ bool CBoot::SetupWiiMemory()
   }
 
   std::string model = "RVL-001(" + region_setting.area + ")";
+  gen.Reset();
   gen.AddSetting("AREA", region_setting.area);
   gen.AddSetting("MODEL", model);
   gen.AddSetting("DVD", "0");
@@ -259,14 +264,21 @@ bool CBoot::SetupWiiMemory()
   gen.AddSetting("VIDEO", region_setting.video);
   gen.AddSetting("GAME", region_setting.game);
 
-  if (!gen.Save(settings_file_path))
+  fs->Delete(0, 0, settings_file_path);
+  fs->CreateFile(SYSMENU_UID, SYSMENU_GID, settings_file_path, 0, IOS::HLE::FS::Mode::Read,
+                 IOS::HLE::FS::Mode::Read, IOS::HLE::FS::Mode::Read);
+  // The permissions are set to r-/r-/r- so write to the file as uid 0.
   {
-    PanicAlertT("SetupWiiMemory: Can't create setting.txt file");
-    return false;
+    const auto fd = fs->OpenFile(0, 0, settings_file_path, IOS::HLE::FS::Mode::Write);
+    if (!fd || !fs->WriteFile(*fd, gen.GetBytes().data(), gen.GetBytes().size()))
+    {
+      PanicAlertT("SetupWiiMemory: Can't create setting.txt file");
+      return false;
+    }
   }
 
   // Write the 256 byte setting.txt to memory.
-  Memory::CopyToEmu(0x3800, gen.GetData(), SettingsHandler::SETTINGS_SIZE);
+  Memory::CopyToEmu(0x3800, gen.GetBytes().data(), gen.GetBytes().size());
 
   INFO_LOG(BOOT, "Setup Wii Memory...");
 
@@ -325,13 +337,18 @@ bool CBoot::SetupWiiMemory()
   return true;
 }
 
-static void WriteEmptyPlayRecord()
+static void WriteEmptyPlayRecord(IOS::HLE::FS::FileSystem* fs)
 {
-  const std::string file_path =
-      Common::GetTitleDataPath(Titles::SYSTEM_MENU, Common::FROM_SESSION_ROOT) + "play_rec.dat";
-  File::IOFile playrec_file(file_path, "r+b");
+  const std::string file_path = Common::GetTitleDataPath(Titles::SYSTEM_MENU) + "/play_rec.dat";
+  fs->CreateFile(SYSMENU_UID, SYSMENU_GID, file_path, 0, IOS::HLE::FS::Mode::ReadWrite,
+                 IOS::HLE::FS::Mode::ReadWrite, IOS::HLE::FS::Mode::ReadWrite);
+
+  const auto fd = fs->OpenFile(SYSMENU_UID, SYSMENU_GID, file_path, IOS::HLE::FS::Mode::Write);
+  if (!fd)
+    return;
+
   std::vector<u8> empty_record(0x80);
-  playrec_file.WriteBytes(empty_record.data(), empty_record.size());
+  fs->WriteFile(*fd, empty_record.data(), empty_record.size());
 }
 
 // __________________________________________________________________________________________________
@@ -350,7 +367,7 @@ bool CBoot::EmulatedBS2_Wii(const DiscIO::Volume& volume)
   if (!tmd.IsValid())
     return false;
 
-  WriteEmptyPlayRecord();
+  WriteEmptyPlayRecord(IOS::HLE::GetIOS()->GetFS().get());
   UpdateStateFlags([](StateFlags* state) {
     state->flags = 0xc1;
     state->type = 0xff;

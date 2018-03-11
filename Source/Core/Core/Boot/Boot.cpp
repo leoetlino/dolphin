@@ -471,26 +471,22 @@ void StateFlags::UpdateChecksum()
 
 void UpdateStateFlags(std::function<void(StateFlags*)> update_function)
 {
-  const std::string file_path =
-      Common::GetTitleDataPath(Titles::SYSTEM_MENU, Common::FROM_SESSION_ROOT) + WII_STATE;
+  const std::string file_path = Common::GetTitleDataPath(Titles::SYSTEM_MENU) + "/" + WII_STATE;
 
-  File::IOFile file;
-  StateFlags state;
-  if (File::Exists(file_path))
-  {
-    file.Open(file_path, "r+b");
-    file.ReadBytes(&state, sizeof(state));
-  }
-  else
-  {
-    File::CreateFullPath(file_path);
-    file.Open(file_path, "a+b");
-    memset(&state, 0, sizeof(state));
-  }
+  const auto fs = IOS::HLE::GetIOS()->GetFS();
+  fs->CreateFile(SYSMENU_UID, SYSMENU_GID, file_path, 0, IOS::HLE::FS::Mode::ReadWrite,
+                 IOS::HLE::FS::Mode::ReadWrite, IOS::HLE::FS::Mode::ReadWrite);
+
+  StateFlags state{};
+  const auto fd = fs->OpenFile(SYSMENU_UID, SYSMENU_GID, file_path, IOS::HLE::FS::Mode::ReadWrite);
+  if (!fd)
+    return;
+  if (fs->GetFileStatus(*fd)->size == sizeof(StateFlags))
+    fs->ReadFile(*fd, &state, 1);
 
   update_function(&state);
   state.UpdateChecksum();
 
-  file.Seek(0, SEEK_SET);
-  file.WriteBytes(&state, sizeof(state));
+  fs->SeekFile(*fd, 0, IOS::HLE::FS::SeekMode::Set);
+  fs->WriteFile(*fd, &state, 1);
 }

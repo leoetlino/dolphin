@@ -24,9 +24,6 @@
 // ~1 second created here
 static void CreateVirtualFATFilesystem(std::shared_ptr<IOS::HLE::FS::FileSystem> fs)
 {
-  constexpr u32 SYSMENU_UID = 0x1000;
-  constexpr u16 SYSMENU_GID = 0x1;
-
   const std::string cdb_path = "/title/00000001/00000002/data/cdb.vff";
   fs->CreateFile(SYSMENU_UID, SYSMENU_GID, cdb_path, 0, IOS::HLE::FS::Mode::ReadWrite,
                  IOS::HLE::FS::Mode::ReadWrite, IOS::HLE::FS::Mode::ReadWrite);

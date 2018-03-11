@@ -79,6 +79,9 @@ struct BootParameters
   bool delete_savestate = false;
 };
 
+constexpr u32 SYSMENU_UID = 0x1000;
+constexpr u16 SYSMENU_GID = 0x1;
+
 class CBoot
 {
 public:
