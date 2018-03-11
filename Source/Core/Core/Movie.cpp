@@ -46,6 +46,8 @@
 #include "Core/HW/Wiimote.h"
 #include "Core/HW/WiimoteCommon/WiimoteReport.h"
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
+#include "Core/IOS/FS/FileSystem.h"
+#include "Core/IOS/IOS.h"
 #include "Core/IOS/USB/Bluetooth/BTEmu.h"
 #include "Core/IOS/USB/Bluetooth/WiimoteDevice.h"
 #include "Core/NetPlayProto.h"
@@ -1384,8 +1386,9 @@ void GetSettings()
   if (SConfig::GetInstance().bWii)
   {
     u64 title_id = SConfig::GetInstance().GetTitleID();
-    s_bClearSave =
-        !File::Exists(Common::GetTitleDataPath(title_id, Common::FROM_SESSION_ROOT) + "banner.bin");
+    const std::string banner_path = Common::GetTitleDataPath(title_id) + "/banner.bin";
+    IOS::HLE::Kernel ios;
+    s_bClearSave = !ios.GetFS()->GetMetadata(0, 0, banner_path).Succeeded();
   }
   else
   {
