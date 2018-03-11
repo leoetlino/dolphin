@@ -10,6 +10,11 @@
 
 #include "Common/CommonTypes.h"
 
+namespace IOS::HLE::FS
+{
+class FileSystem;
+}
+
 class CWiiSaveCrypted
 {
 public:
@@ -18,7 +23,7 @@ public:
   void static ExportAllSaves();
 
 private:
-  CWiiSaveCrypted(const std::string& filename, u64 title_id = 0);
+  CWiiSaveCrypted(IOS::HLE::FS::FileSystem* fs, const std::string& filename, u64 title_id = 0);
   ~CWiiSaveCrypted();
   void ReadHDR();
   void ReadBKHDR();
@@ -38,6 +43,7 @@ private:
   static const u8 s_md5_blanker[16];
   static const u32 s_ng_id;
 
+  IOS::HLE::FS::FileSystem* m_fs;
   mbedtls_aes_context m_aes_ctx;
   u8 m_sd_iv[0x10];
   std::vector<std::string> m_files_list;
@@ -53,6 +59,8 @@ private:
   u32 m_total_size;
 
   u64 m_title_id;
+  u32 m_title_uid;
+  u16 m_title_gid;
 
   bool m_valid;
 

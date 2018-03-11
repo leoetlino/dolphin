@@ -30,6 +30,9 @@
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
 #include "Common/Swap.h"
+#include "Core/IOS/ES/ES.h"
+#include "Core/IOS/FS/FileSystem.h"
+#include "Core/IOS/IOS.h"
 
 const u8 CWiiSaveCrypted::s_sd_key[16] = {0xAB, 0x01, 0xB9, 0xD8, 0xE1, 0x62, 0x2B, 0x08,
                                           0xAF, 0xBA, 0xD8, 0x4D, 0xBF, 0xC2, 0xA5, 0x5D};
@@ -39,13 +42,13 @@ const u32 CWiiSaveCrypted::s_ng_id = 0x0403AC68;
 
 bool CWiiSaveCrypted::ImportWiiSave(const std::string& filename)
 {
-  CWiiSaveCrypted save_file(filename);
+  CWiiSaveCrypted save_file(IOS::HLE::Kernel{}.GetFS().get(), filename);
   return save_file.m_valid;
 }
 
 bool CWiiSaveCrypted::ExportWiiSave(u64 title_id)
 {
-  CWiiSaveCrypted export_save("", title_id);
+  CWiiSaveCrypted export_save(IOS::HLE::Kernel{}.GetFS().get(), "", title_id);
   if (export_save.m_valid)
   {
     SuccessAlertT("Successfully exported file to %s", export_save.m_encrypted_save_path.c_str());
@@ -59,46 +62,26 @@ bool CWiiSaveCrypted::ExportWiiSave(u64 title_id)
 
 void CWiiSaveCrypted::ExportAllSaves()
 {
-  std::string title_folder = File::GetUserPath(D_WIIROOT_IDX) + "/title";
-  std::vector<u64> titles;
-  const u32 path_mask = 0x00010000;
-  for (int i = 0; i < 8; ++i)
+  IOS::HLE::Kernel ios;
+  size_t exported_count = 0;
+  for (const u64 title : ios.GetES()->GetInstalledTitles())
   {
-    std::string folder = StringFromFormat("%s/%08x/", title_folder.c_str(), path_mask | i);
-    File::FSTEntry fst_tmp = File::ScanDirectoryTree(folder, false);
+    if (!ios.GetFS()->GetMetadata(0, 0, Common::GetTitleDataPath(title) + "/banner.bin"))
+      continue;
 
-    for (const File::FSTEntry& entry : fst_tmp.children)
-    {
-      if (entry.isDirectory)
-      {
-        u32 game_id;
-        if (AsciiToHex(entry.virtualName, game_id))
-        {
-          std::string banner_path =
-              StringFromFormat("%s%08x/data/banner.bin", folder.c_str(), game_id);
-          if (File::Exists(banner_path))
-          {
-            u64 title_id = (((u64)path_mask | i) << 32) | game_id;
-            titles.push_back(title_id);
-          }
-        }
-      }
-    }
-  }
-  SuccessAlertT("Found %zu save file(s)", titles.size());
-  u32 success = 0;
-  for (const u64& title : titles)
-  {
-    CWiiSaveCrypted export_save{"", title};
+    const CWiiSaveCrypted export_save{ios.GetFS().get(), "", title};
     if (export_save.m_valid)
-      success++;
+      ++exported_count;
   }
-  SuccessAlertT("Successfully exported %u save(s) to %s", success,
+  SuccessAlertT("Successfully exported %zu save(s) to %s", exported_count,
                 (File::GetUserPath(D_USER_IDX) + "private/wii/title/").c_str());
 }
 
-CWiiSaveCrypted::CWiiSaveCrypted(const std::string& filename, u64 title_id)
-    : m_encrypted_save_path(filename), m_title_id(title_id)
+// XXX: This signature is really error prone. Ideally, users should pass a mode
+// (read or write) directly and just the title ID.
+CWiiSaveCrypted::CWiiSaveCrypted(IOS::HLE::FS::FileSystem* fs, const std::string& filename,
+                                 u64 title_id)
+    : m_fs(fs), m_encrypted_save_path(filename), m_title_id(title_id)
 {
   memcpy(m_sd_iv, "\x21\x67\x12\xE6\xAA\x1F\x68\x9F\x95\xC5\xA2\x23\x24\xDC\x6A\x98", 0x10);
 
@@ -181,15 +164,18 @@ void CWiiSaveCrypted::ReadHDR()
     m_valid = false;
     return;
   }
-  std::string banner_file_path = m_wii_title_path + "banner.bin";
-  if (!File::Exists(banner_file_path) ||
+  const std::string banner_file_path = m_wii_title_path + "/banner.bin";
+  if (!m_fs->GetMetadata(0, 0, banner_file_path) ||
       AskYesNoT("%s already exists. Consider making a backup of the current save files before "
                 "overwriting.\nOverwrite now?",
                 banner_file_path.c_str()))
   {
     INFO_LOG(CONSOLE, "Creating file %s", banner_file_path.c_str());
-    File::IOFile banner_file(banner_file_path, "wb");
-    banner_file.WriteBytes(m_header.BNR, banner_size);
+    m_fs->CreateFile(m_title_uid, m_title_gid, banner_file_path, 0, IOS::HLE::FS::Mode::ReadWrite,
+                     IOS::HLE::FS::Mode::ReadWrite, IOS::HLE::FS::Mode::ReadWrite);
+    const auto fd = m_fs->OpenFile(0, 0, banner_file_path, IOS::HLE::FS::Mode::Write);
+    if (fd)
+      m_fs->WriteFile(*fd, m_header.BNR, banner_size);
   }
   else
   {
@@ -203,21 +189,20 @@ void CWiiSaveCrypted::WriteHDR()
     return;
   memset(&m_header, 0, HEADER_SZ);
 
-  std::string banner_file_path = m_wii_title_path + "banner.bin";
-  u32 banner_size = static_cast<u32>(File::GetSize(banner_file_path));
-  m_header.hdr.BannerSize = Common::swap32(banner_size);
-
   m_header.hdr.SaveGameTitle = Common::swap64(m_title_id);
   memcpy(m_header.hdr.Md5, s_md5_blanker, 0x10);
   m_header.hdr.Permissions = 0x3C;
 
-  File::IOFile banner_file(banner_file_path, "rb");
-  if (!banner_file.ReadBytes(m_header.BNR, banner_size))
+  const std::string banner_file_path = m_wii_title_path + "/banner.bin";
+  const auto fd = m_fs->OpenFile(0, 0, banner_file_path, IOS::HLE::FS::Mode::Read);
+  const u32 banner_size = fd ? m_fs->GetFileStatus(*fd)->size : 0;
+  if (!fd || !m_fs->ReadFile(*fd, m_header.BNR, banner_size))
   {
     ERROR_LOG(CONSOLE, "Failed to read banner.bin");
     m_valid = false;
     return;
   }
+  m_header.hdr.BannerSize = Common::swap32(banner_size);
   // remove nocopy flag
   m_header.BNR[7] &= ~1;
 
@@ -347,9 +332,7 @@ void CWiiSaveCrypted::ImportWiiSaveFiles()
       // Special characters in path components will be escaped such as /../
       std::string file_path = Common::EscapePath(reinterpret_cast<const char*>(file_hdr_tmp.name));
 
-      std::string file_path_full = m_wii_title_path + file_path;
-      File::CreateFullPath(file_path_full);
-      const File::FileInfo file_info(file_path_full);
+      std::string file_path_full = m_wii_title_path + "/" + file_path;
       if (file_hdr_tmp.type == 1)
       {
         file_size = Common::swap32(file_hdr_tmp.size);
@@ -369,23 +352,18 @@ void CWiiSaveCrypted::ImportWiiSaveFiles()
                               static_cast<const u8*>(file_data_enc.data()), file_data.data());
 
         INFO_LOG(CONSOLE, "Creating file %s", file_path_full.c_str());
-
-        File::IOFile raw_save_file(file_path_full, "wb");
-        raw_save_file.WriteBytes(file_data.data(), file_size);
+        // XXX: This isn't right -- the permission info from the header should be used.
+        m_fs->CreateFile(m_title_uid, m_title_gid, file_path_full, 0, IOS::HLE::FS::Mode::ReadWrite,
+                         IOS::HLE::FS::Mode::ReadWrite, IOS::HLE::FS::Mode::ReadWrite);
+        const auto fd = m_fs->OpenFile(0, 0, file_path_full, IOS::HLE::FS::Mode::Write);
+        if (fd)
+          m_fs->WriteFile(*fd, file_data.data(), file_size);
       }
       else if (file_hdr_tmp.type == 2)
       {
-        if (!file_info.Exists())
-        {
-          if (!File::CreateDir(file_path_full))
-            ERROR_LOG(CONSOLE, "Failed to create directory %s", file_path_full.c_str());
-        }
-        else if (!file_info.IsDirectory())
-        {
-          ERROR_LOG(CONSOLE,
-                    "Failed to create directory %s because a file with the same name exists",
-                    file_path_full.c_str());
-        }
+        m_fs->CreateDirectory(m_title_uid, m_title_gid, file_path_full, 0,
+                              IOS::HLE::FS::Mode::ReadWrite, IOS::HLE::FS::Mode::ReadWrite,
+                              IOS::HLE::FS::Mode::ReadWrite);
       }
     }
   }
@@ -402,14 +380,16 @@ void CWiiSaveCrypted::ExportWiiSaveFiles()
     memset(&file_hdr_tmp, 0, FILE_HDR_SZ);
 
     u32 file_size = 0;
-    const File::FileInfo file_info(m_files_list[i]);
-    if (file_info.IsDirectory())
+    const auto metadata = m_fs->GetMetadata(0, 0, m_files_list[i]);
+    if (!metadata)
+      return;
+    if (!metadata->is_file)
     {
       file_hdr_tmp.type = 2;
     }
     else
     {
-      file_size = static_cast<u32>(file_info.GetSize());
+      file_size = metadata->size;
       file_hdr_tmp.type = 1;
     }
 
@@ -443,8 +423,8 @@ void CWiiSaveCrypted::ExportWiiSaveFiles()
         m_valid = false;
         return;
       }
-      File::IOFile raw_save_file(m_files_list[i], "rb");
-      if (!raw_save_file)
+      const auto fd = m_fs->OpenFile(0, 0, m_files_list[i], IOS::HLE::FS::Mode::Read);
+      if (!fd)
       {
         ERROR_LOG(CONSOLE, "%s failed to open", m_files_list[i].c_str());
         m_valid = false;
@@ -453,7 +433,7 @@ void CWiiSaveCrypted::ExportWiiSaveFiles()
       std::vector<u8> file_data(file_size_rounded);
       std::vector<u8> file_data_enc(file_size_rounded);
 
-      if (!raw_save_file.ReadBytes(file_data.data(), file_size))
+      if (!m_fs->ReadFile(*fd, file_data.data(), file_size))
       {
         ERROR_LOG(CONSOLE, "Failed to read data from file: %s", m_files_list[i].c_str());
         m_valid = false;
@@ -569,7 +549,7 @@ bool CWiiSaveCrypted::getPaths(bool for_export)
   if (m_title_id)
   {
     // CONFIGURED because this whole class is only used from the GUI, not directly by games.
-    m_wii_title_path = Common::GetTitleDataPath(m_title_id, Common::FROM_CONFIGURED_ROOT);
+    m_wii_title_path = Common::GetTitleDataPath(m_title_id);
   }
 
   if (for_export)
@@ -578,14 +558,14 @@ bool CWiiSaveCrypted::getPaths(bool for_export)
     sprintf(game_id, "%c%c%c%c", (u8)(m_title_id >> 24) & 0xFF, (u8)(m_title_id >> 16) & 0xFF,
             (u8)(m_title_id >> 8) & 0xFF, (u8)m_title_id & 0xFF);
 
-    if (!File::IsDirectory(m_wii_title_path))
+    if (!m_fs->ReadDirectory(0, 0, m_wii_title_path).Succeeded())
     {
       m_valid = false;
       ERROR_LOG(CONSOLE, "No save folder found for title %s", game_id);
       return false;
     }
 
-    if (!File::Exists(m_wii_title_path + "banner.bin"))
+    if (!m_fs->GetMetadata(0, 0, m_wii_title_path + "/banner.bin").Succeeded())
     {
       m_valid = false;
       ERROR_LOG(CONSOLE, "No banner file found for title %s", game_id);
@@ -599,10 +579,18 @@ bool CWiiSaveCrypted::getPaths(bool for_export)
     m_encrypted_save_path += StringFromFormat("private/wii/title/%s/data.bin", game_id);
     File::CreateFullPath(m_encrypted_save_path);
   }
-  else
+
+  const auto metadata = m_fs->GetMetadata(0, 0, Common::GetTitleDataPath(m_title_id));
+  if (!metadata || metadata->is_file)
   {
-    File::CreateFullPath(m_wii_title_path);
+    if (for_export)
+      PanicAlertT("Could not find any save data to export.");
+    else
+      PanicAlertT("Please launch this title at least once before importing save data for it.");
+    return false;
   }
+  m_title_uid = metadata->uid;
+  m_title_gid = metadata->gid;
   return true;
 }
 
@@ -623,28 +611,34 @@ void CWiiSaveCrypted::ScanForFiles(const std::string& save_directory,
       file_list.push_back(directories[i]);
     }
 
-    File::FSTEntry fst_tmp = File::ScanDirectoryTree(directories[i], false);
-    for (const File::FSTEntry& elem : fst_tmp.children)
+    const auto entries = m_fs->ReadDirectory(0, 0, directories[i]);
+    if (!entries)
+      return;
+    for (const std::string& elem : *entries)
     {
-      if (elem.virtualName != "banner.bin")
-      {
-        num++;
-        size += FILE_HDR_SZ;
-        if (elem.isDirectory)
-        {
-          if (elem.virtualName == "nocopy" || elem.virtualName == "nomove")
-          {
-            NOTICE_LOG(CONSOLE,
-                       "This save will likely require homebrew tools to copy to a real Wii.");
-          }
+      if (elem == "banner.bin")
+        continue;
 
-          directories.push_back(elem.physicalName);
-        }
-        else
+      num++;
+      size += FILE_HDR_SZ;
+      const std::string absolute_path = directories[i] + "/" + elem;
+      const auto metadata = m_fs->GetMetadata(0, 0, absolute_path);
+      if (!metadata)
+        return;
+      if (!metadata->is_file)
+      {
+        if (elem == "nocopy" || elem == "nomove")
         {
-          file_list.push_back(elem.physicalName);
-          size += static_cast<u32>(Common::AlignUp(elem.size, BLOCK_SZ));
+          NOTICE_LOG(CONSOLE,
+                     "This save will likely require homebrew tools to copy to a real Wii.");
         }
+
+        directories.push_back(absolute_path);
+      }
+      else
+      {
+        file_list.push_back(absolute_path);
+        size += static_cast<u32>(Common::AlignUp(metadata->size, BLOCK_SZ));
       }
     }
   }
