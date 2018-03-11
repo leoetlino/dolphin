@@ -28,6 +28,7 @@
 #include "Core/Boot/Boot.h"
 #include "Core/ConfigManager.h"
 #include "Core/IOS/ES/Formats.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "Core/TitleDatabase.h"
 
 #include "DiscIO/Blob.h"
@@ -190,7 +191,7 @@ bool GameFile::IsElfOrDol() const
   return name_end == ".elf" || name_end == ".dol";
 }
 
-bool GameFile::BannerChanged()
+bool GameFile::BannerChanged(IOS::HLE::FS::FileSystem* fs)
 {
   // Wii banners can only be read if there is a save file.
   // In case the cache was created without a save file existing,
@@ -202,7 +203,7 @@ bool GameFile::BannerChanged()
     return false;
 
   m_pending.volume_banner.buffer =
-      DiscIO::WiiSaveBanner(m_title_id)
+      DiscIO::WiiSaveBanner(fs, m_title_id)
           .GetBanner(&m_pending.volume_banner.width, &m_pending.volume_banner.height);
 
   // We only reach here if the old banner was empty, so if the new banner isn't empty,

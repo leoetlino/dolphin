@@ -9,13 +9,18 @@
 
 #include "Common/CommonTypes.h"
 
+namespace IOS::HLE::FS
+{
+class FileSystem;
+};
+
 namespace DiscIO
 {
 class WiiSaveBanner
 {
 public:
-  explicit WiiSaveBanner(u64 title_id);
-  explicit WiiSaveBanner(const std::string& path);
+  explicit WiiSaveBanner(IOS::HLE::FS::FileSystem* fs, u64 title_id);
+  explicit WiiSaveBanner(IOS::HLE::FS::FileSystem* fs, const std::string& path);
 
   bool IsValid() const { return m_valid; }
   const std::string& GetPath() const { return m_path; }
@@ -35,7 +40,8 @@ private:
     char16_t description[32];
   } m_header;
 
-  bool m_valid = true;
+  bool m_valid = false;
   std::string m_path;
+  IOS::HLE::FS::FileSystem* m_fs;
 };
 }

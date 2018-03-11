@@ -20,6 +20,8 @@
 #include "Common/FileSearch.h"
 #include "Common/FileUtil.h"
 
+#include "Core/Core.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "Core/TitleDatabase.h"
 
 #include "DiscIO/DirectoryBlob.h"
@@ -67,7 +69,10 @@ std::shared_ptr<const GameFile> GameFileCache::AddOrGet(const std::string& path,
     m_cached_files.emplace_back(std::move(game));
   }
   std::shared_ptr<GameFile>& result = found ? *it : m_cached_files.back();
-  if (UpdateAdditionalMetadata(&result, title_database) || !found)
+  const auto fs = !Core::IsRunning() ?
+                      IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured) :
+                      nullptr;
+  if (UpdateAdditionalMetadata(&result, fs.get(), title_database) || !found)
     *cache_changed = true;
 
   return result;
@@ -129,16 +134,20 @@ bool GameFileCache::UpdateAdditionalMetadata(const Core::TitleDatabase& title_da
 {
   bool cache_changed = false;
 
+  const auto fs = !Core::IsRunning() ?
+                      IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured) :
+                      nullptr;
   for (auto& file : m_cached_files)
-    cache_changed |= UpdateAdditionalMetadata(&file, title_database);
+    cache_changed |= UpdateAdditionalMetadata(&file, fs.get(), title_database);
 
   return cache_changed;
 }
 
 bool GameFileCache::UpdateAdditionalMetadata(std::shared_ptr<GameFile>* game_file,
+                                             IOS::HLE::FS::FileSystem* fs,
                                              const Core::TitleDatabase& title_database)
 {
-  const bool banner_changed = (*game_file)->BannerChanged();
+  const bool banner_changed = fs ? (*game_file)->BannerChanged(fs) : false;
   const bool custom_title_changed = (*game_file)->CustomNameChanged(title_database);
   if (!banner_changed && !custom_title_changed)
     return false;

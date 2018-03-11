@@ -18,6 +18,7 @@
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "DiscIO/Blob.h"
 #include "DiscIO/Enums.h"
 #include "DiscIO/Volume.h"
@@ -153,7 +154,8 @@ std::vector<u32> VolumeWAD::GetBanner(int* width, int* height) const
   if (!title_id)
     return std::vector<u32>();
 
-  return WiiSaveBanner(*title_id).GetBanner(width, height);
+  const auto fs = IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured);
+  return WiiSaveBanner(fs.get(), *title_id).GetBanner(width, height);
 }
 
 BlobType VolumeWAD::GetBlobType() const

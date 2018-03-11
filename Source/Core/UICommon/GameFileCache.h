@@ -21,6 +21,11 @@ namespace Core
 class TitleDatabase;
 }
 
+namespace IOS::HLE::FS
+{
+class FileSystem;
+}
+
 namespace UICommon
 {
 class GameFile;
@@ -47,7 +52,7 @@ public:
   bool Save();
 
 private:
-  bool UpdateAdditionalMetadata(std::shared_ptr<GameFile>* game_file,
+  bool UpdateAdditionalMetadata(std::shared_ptr<GameFile>* game_file, IOS::HLE::FS::FileSystem* fs,
                                 const Core::TitleDatabase& title_database);
 
   bool SyncCacheFile(bool save);

@@ -26,6 +26,11 @@ enum class Region;
 enum class Platform;
 }
 
+namespace IOS::HLE::FS
+{
+class FileSystem;
+}
+
 namespace UICommon
 {
 struct GameBanner
@@ -78,7 +83,7 @@ public:
   u64 GetVolumeSize() const { return m_volume_size; }
   const GameBanner& GetBannerImage() const { return m_volume_banner; }
   void DoState(PointerWrap& p);
-  bool BannerChanged();
+  bool BannerChanged(IOS::HLE::FS::FileSystem* fs);
   void BannerCommit();
   bool CustomNameChanged(const Core::TitleDatabase& title_database);
   void CustomNameCommit();

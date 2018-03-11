@@ -13,6 +13,7 @@
 #include "Common/File.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
+#include "Core/IOS/FS/FileSystem.h"
 
 namespace DiscIO
 {
@@ -24,24 +25,17 @@ constexpr unsigned int ICON_WIDTH = 48;
 constexpr unsigned int ICON_HEIGHT = 48;
 constexpr unsigned int ICON_SIZE = ICON_WIDTH * ICON_HEIGHT * 2;
 
-WiiSaveBanner::WiiSaveBanner(u64 title_id)
-    : WiiSaveBanner(Common::GetTitleDataPath(title_id, Common::FROM_CONFIGURED_ROOT) + "banner.bin")
+WiiSaveBanner::WiiSaveBanner(IOS::HLE::FS::FileSystem* fs, u64 title_id)
+    : WiiSaveBanner(fs, Common::GetTitleDataPath(title_id) + "banner.bin")
 {
 }
 
-WiiSaveBanner::WiiSaveBanner(const std::string& path) : m_path(path)
+WiiSaveBanner::WiiSaveBanner(IOS::HLE::FS::FileSystem* fs, const std::string& path)
+    : m_path(path), m_fs(fs)
 {
   constexpr size_t MINIMUM_SIZE = sizeof(Header) + BANNER_SIZE + ICON_SIZE;
-  File::IOFile file(path, "rb");
-  if (!file.ReadArray(&m_header, 1))
-  {
-    m_header = {};
-    m_valid = false;
-  }
-  else if (file.GetSize() < MINIMUM_SIZE)
-  {
-    m_valid = false;
-  }
+  const auto fd = fs->OpenFile(0, 0, path, IOS::HLE::FS::Mode::Read);
+  m_valid = fd && fs->GetFileStatus(*fd)->size >= MINIMUM_SIZE && fs->ReadFile(*fd, &m_header, 1);
 }
 
 std::string WiiSaveBanner::GetName() const
@@ -59,12 +53,12 @@ std::vector<u32> WiiSaveBanner::GetBanner(int* width, int* height) const
   *width = 0;
   *height = 0;
 
-  File::IOFile file(m_path, "rb");
-  if (!file.Seek(sizeof(Header), SEEK_SET))
+  const auto fd = m_fs->OpenFile(0, 0, m_path, IOS::HLE::FS::Mode::Read);
+  if (!fd || !m_fs->SeekFile(*fd, sizeof(Header), IOS::HLE::FS::SeekMode::Set))
     return std::vector<u32>();
 
   std::vector<u16> banner_data(BANNER_WIDTH * BANNER_HEIGHT);
-  if (!file.ReadArray(banner_data.data(), banner_data.size()))
+  if (!m_fs->ReadFile(*fd, banner_data.data(), banner_data.size()))
     return std::vector<u32>();
 
   std::vector<u32> image_buffer(BANNER_WIDTH * BANNER_HEIGHT);

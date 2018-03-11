@@ -1337,7 +1337,7 @@ void CFrame::OnCheckNAND(wxCommandEvent&)
       }
       else
       {
-        DiscIO::WiiSaveBanner banner(title_id);
+        DiscIO::WiiSaveBanner banner(ios.GetFS().get(), title_id);
         if (banner.IsValid())
         {
           title_listings += " - " + banner.GetName();
