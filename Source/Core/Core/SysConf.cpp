@@ -35,9 +35,8 @@ static size_t GetNonArrayEntrySize(SysConf::Entry::Type type)
     return 0;
   }
 }
-SysConf::SysConf(const Common::FromWhichRoot root_type)
+SysConf::SysConf(IOS::HLE::FS::FileSystem* fs) : m_fs{fs}
 {
-  m_file_name = Common::RootUserPath(root_type) + DIR_SEP WII_SYSCONF_DIR DIR_SEP WII_SYSCONF;
   Load();
 }
 
@@ -55,39 +54,39 @@ void SysConf::Load()
 {
   Clear();
 
-  if (File::GetSize(m_file_name) != SYSCONF_SIZE || !LoadFromFile(m_file_name))
+  const auto fd = m_fs->OpenFile(0, 0, "/shared2/sys/SYSCONF", IOS::HLE::FS::Mode::Read);
+  if (!fd || m_fs->GetFileStatus(*fd)->size != SYSCONF_SIZE || !LoadFromFile(*fd))
   {
     WARN_LOG(CORE, "No valid SYSCONF detected. Creating a new one.");
     InsertDefaultEntries();
   }
 }
 
-bool SysConf::LoadFromFile(const std::string& file_name)
+bool SysConf::LoadFromFile(const IOS::HLE::FS::FileHandle& fd)
 {
-  File::IOFile file(file_name, "rb");
-  file.Seek(4, SEEK_SET);
+  m_fs->SeekFile(fd, 4, IOS::HLE::FS::SeekMode::Set);
   u16 number_of_entries;
-  file.ReadBytes(&number_of_entries, sizeof(number_of_entries));
+  m_fs->ReadFile(fd, &number_of_entries, 1);
   number_of_entries = Common::swap16(number_of_entries);
 
   std::vector<u16> offsets(number_of_entries);
   for (u16& offset : offsets)
   {
-    file.ReadBytes(&offset, sizeof(offset));
+    m_fs->ReadFile(fd, &offset, 1);
     offset = Common::swap16(offset);
   }
 
   for (const u16 offset : offsets)
   {
-    file.Seek(offset, SEEK_SET);
+    m_fs->SeekFile(fd, offset, IOS::HLE::FS::SeekMode::Set);
 
     // Metadata
     u8 description = 0;
-    file.ReadBytes(&description, sizeof(description));
+    m_fs->ReadFile(fd, &description, 1);
     const Entry::Type type = static_cast<Entry::Type>((description & 0xe0) >> 5);
     const u8 name_length = (description & 0x1f) + 1;
     std::string name(name_length, '\0');
-    file.ReadBytes(&name[0], name.size());
+    m_fs->ReadFile(fd, &name[0], name.size());
 
     // Data
     std::vector<u8> data;
@@ -96,7 +95,7 @@ bool SysConf::LoadFromFile(const std::string& file_name)
     case Entry::Type::BigArray:
     {
       u16 data_length = 0;
-      file.ReadBytes(&data_length, sizeof(data_length));
+      m_fs->ReadFile(fd, &data_length, 1);
       // The stored u16 is length - 1, not length.
       data.resize(Common::swap16(data_length) + 1);
       break;
@@ -104,7 +103,7 @@ bool SysConf::LoadFromFile(const std::string& file_name)
     case Entry::Type::SmallArray:
     {
       u8 data_length = 0;
-      file.ReadBytes(&data_length, sizeof(data_length));
+      m_fs->ReadFile(fd, &data_length, 1);
       data.resize(data_length + 1);
       break;
     }
@@ -121,7 +120,7 @@ bool SysConf::LoadFromFile(const std::string& file_name)
       return false;
     }
 
-    file.ReadBytes(data.data(), data.size());
+    m_fs->ReadFile(fd, data.data(), data.size());
     AddEntry({type, name, std::move(data)});
   }
   return true;
@@ -194,14 +193,19 @@ bool SysConf::Save() const
   std::copy(footer.cbegin(), footer.cend(), buffer.end() - footer.size());
 
   // Write the new data.
-  const std::string temp_file = m_file_name + ".tmp";
-  File::CreateFullPath(temp_file);
+  const std::string temp_file = "/tmp/SYSCONF";
+  constexpr u32 SYSMENU_UID = 0x1000;
+  constexpr u16 SYSMENU_GID = 1;
+  constexpr auto rw_mode = IOS::HLE::FS::Mode::ReadWrite;
   {
-    File::IOFile file(temp_file, "wb");
-    if (!file.WriteBytes(buffer.data(), buffer.size()))
+    m_fs->CreateFile(SYSMENU_UID, SYSMENU_GID, temp_file, 0, rw_mode, rw_mode, rw_mode);
+    const auto fd = m_fs->OpenFile(SYSMENU_UID, SYSMENU_GID, temp_file, IOS::HLE::FS::Mode::Write);
+    if (!fd || !m_fs->WriteFile(*fd, buffer.data(), buffer.size()))
       return false;
   }
-  return File::RenameSync(temp_file, m_file_name);
+  m_fs->CreateDirectory(SYSMENU_UID, SYSMENU_GID, "/shared2/sys", 0, rw_mode, rw_mode, rw_mode);
+  const auto result = m_fs->Rename(SYSMENU_UID, SYSMENU_GID, temp_file, "/shared2/sys/SYSCONF");
+  return result == IOS::HLE::FS::ResultCode::Success;
 }
 
 SysConf::Entry::Entry(Type type_, const std::string& name_) : type(type_), name(name_)

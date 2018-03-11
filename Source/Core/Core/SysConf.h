@@ -13,11 +13,12 @@
 #include "Common/Assert.h"
 #include "Common/CommonTypes.h"
 #include "Common/NandPaths.h"
+#include "Core/IOS/FS/FileSystem.h"
 
 class SysConf final
 {
 public:
-  explicit SysConf(Common::FromWhichRoot root_type);
+  explicit SysConf(IOS::HLE::FS::FileSystem* fs);
   ~SysConf();
 
   void Clear();
@@ -85,8 +86,8 @@ public:
 
 private:
   void InsertDefaultEntries();
-  bool LoadFromFile(const std::string& file_name);
+  bool LoadFromFile(const IOS::HLE::FS::FileHandle& fd);
 
-  std::string m_file_name;
   std::vector<Entry> m_entries;
+  IOS::HLE::FS::FileSystem* m_fs;
 };
