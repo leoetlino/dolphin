@@ -8,10 +8,10 @@
 
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
-#include "Common/File.h"
-#include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/Swap.h"
+#include "Core/IOS/FS/FileSystem.h"
+#include "Core/IOS/IOS.h"
 
 namespace IOS
 {
@@ -19,17 +19,16 @@ namespace HLE
 {
 namespace NWC24
 {
-NWC24Config::NWC24Config()
-{
-  m_path = File::GetUserPath(D_SESSION_WIIROOT_IDX) + "/" WII_WC24CONF_DIR "/nwc24msg.cfg";
-  ReadConfig();
-}
+static const std::string CONFIG_PATH = "/" WII_WC24CONF_DIR "/nwc24msg.cfg";
 
-void NWC24Config::ReadConfig()
+NWC24Config::NWC24Config() = default;
+
+void NWC24Config::ReadConfig(FS::FileSystem* fs)
 {
-  if (!File::IOFile(m_path, "rb").ReadBytes(&m_data, sizeof(m_data)))
+  const auto fd = fs->OpenFile(PID_KD, PID_KD, CONFIG_PATH, FS::Mode::Read);
+  if (!fd || !fs->ReadFile(*fd, &m_data, 1))
   {
-    ResetConfig();
+    ResetConfig(fs);
   }
   else
   {
@@ -39,23 +38,20 @@ void NWC24Config::ReadConfig()
   }
 }
 
-void NWC24Config::WriteConfig() const
+void NWC24Config::WriteConfig(FS::FileSystem* fs) const
 {
-  if (!File::Exists(m_path))
-  {
-    if (!File::CreateFullPath(File::GetUserPath(D_SESSION_WIIROOT_IDX) + "/" WII_WC24CONF_DIR))
-    {
-      ERROR_LOG(IOS_WC24, "Failed to create directory for WC24");
-    }
-  }
-
-  File::IOFile(m_path, "wb").WriteBytes(&m_data, sizeof(m_data));
+  fs->CreateFullPath(PID_KD, PID_KD, CONFIG_PATH, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite,
+                     FS::Mode::ReadWrite);
+  fs->CreateFile(PID_KD, PID_KD, CONFIG_PATH, 0, FS::Mode::ReadWrite, FS::Mode::ReadWrite,
+                 FS::Mode::ReadWrite);
+  const auto fd = fs->OpenFile(PID_KD, PID_KD, CONFIG_PATH, FS::Mode::Write);
+  if (!fd || !fs->WriteFile(*fd, &m_data, 1))
+    ERROR_LOG(IOS_WC24, "Failed to write config");
 }
 
-void NWC24Config::ResetConfig()
+void NWC24Config::ResetConfig(FS::FileSystem* fs)
 {
-  if (File::Exists(m_path))
-    File::Delete(m_path);
+  fs->Delete(PID_KD, PID_KD, CONFIG_PATH);
 
   constexpr const char* urls[5] = {
       "https://amw.wc24.wii.com/cgi-bin/account.cgi", "http://rcw.wc24.wii.com/cgi-bin/check.cgi",
@@ -78,7 +74,7 @@ void NWC24Config::ResetConfig()
 
   SetChecksum(CalculateNwc24ConfigChecksum());
 
-  WriteConfig();
+  WriteConfig(fs);
 }
 
 u32 NWC24Config::CalculateNwc24ConfigChecksum() const

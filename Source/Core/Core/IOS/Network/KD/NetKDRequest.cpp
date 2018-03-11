@@ -16,6 +16,8 @@
 
 #include "Core/CommonTitles.h"
 #include "Core/HW/Memmap.h"
+#include "Core/IOS/FS/FileSystem.h"
+#include "Core/IOS/IOS.h"
 #include "Core/IOS/Network/Socket.h"
 
 namespace IOS
@@ -26,6 +28,7 @@ namespace Device
 {
 NetKDRequest::NetKDRequest(Kernel& ios, const std::string& device_name) : Device(ios, device_name)
 {
+  config.ReadConfig(m_ios.GetFS().get());
 }
 
 NetKDRequest::~NetKDRequest()
@@ -82,14 +85,18 @@ IPCCommandResult NetKDRequest::IOCtl(const IOCtlRequest& request)
     INFO_LOG(IOS_WC24, "NET_KD_REQ: IOCTL_NWC24_REQUEST_GENERATED_USER_ID");
     if (config.CreationStage() == NWC24::NWC24Config::NWC24_IDCS_INITIAL)
     {
-      const std::string settings_file_path(
-          Common::GetTitleDataPath(Titles::SYSTEM_MENU, Common::FROM_SESSION_ROOT) + WII_SETTING);
+      const auto fs = m_ios.GetFS();
+      const std::string settings_file_path(Common::GetTitleDataPath(Titles::SYSTEM_MENU) + "/" +
+                                           WII_SETTING);
       SettingsHandler gen;
       std::string area, model;
       bool got_settings = false;
 
-      if (File::Exists(settings_file_path) && gen.Open(settings_file_path))
+      const auto fd = fs->OpenFile(PID_KD, PID_KD, settings_file_path, FS::Mode::Read);
+      SettingsHandler::Buffer buffer;
+      if (fd && fs->ReadFile(*fd, buffer.data(), buffer.size()))
       {
+        gen.SetBytes(std::move(buffer));
         area = gen.GetValue("AREA");
         model = gen.GetValue("MODEL");
         got_settings = true;
@@ -107,7 +114,7 @@ IPCCommandResult NetKDRequest::IOCtl(const IOCtlRequest& request)
         config.SetId(UserID);
         config.IncrementIdGen();
         config.SetCreationStage(NWC24::NWC24Config::NWC24_IDCS_GENERATED);
-        config.WriteConfig();
+        config.WriteConfig(fs.get());
 
         WriteReturnValue(ret, request.buffer_out);
       }

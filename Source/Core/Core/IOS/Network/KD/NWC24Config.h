@@ -11,6 +11,11 @@ namespace IOS
 {
 namespace HLE
 {
+namespace FS
+{
+class FileSystem;
+}
+
 namespace NWC24
 {
 enum ErrorCode : s32
@@ -43,9 +48,9 @@ public:
 
   NWC24Config();
 
-  void ReadConfig();
-  void WriteConfig() const;
-  void ResetConfig();
+  void ReadConfig(FS::FileSystem* fs);
+  void WriteConfig(FS::FileSystem* fs) const;
+  void ResetConfig(FS::FileSystem* fs);
 
   u32 CalculateNwc24ConfigChecksum() const;
   s32 CheckNwc24Config() const;
@@ -94,7 +99,6 @@ private:
   };
 #pragma pack(pop)
 
-  std::string m_path;
   ConfigData m_data;
 };
 }  // namespace NWC24
