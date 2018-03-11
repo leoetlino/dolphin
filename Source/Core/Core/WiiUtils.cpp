@@ -34,6 +34,7 @@
 #include "Core/IOS/Device.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/ES/Formats.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "Core/IOS/IOS.h"
 #include "Core/SysConf.h"
 #include "DiscIO/DiscExtractor.h"
@@ -136,7 +137,7 @@ bool InstallWAD(IOS::HLE::Kernel& ios, const DiscIO::WiiWAD& wad, InstallType in
   }
 
   // Delete a previous temporary title, if it exists.
-  SysConf sysconf{Common::FROM_SESSION_ROOT};
+  SysConf sysconf{ios.GetFS().get()};
   SysConf::Entry* tid_entry = sysconf.GetOrAddEntry("IPL.TID", SysConf::Entry::Type::LongLong);
   if (const u64 previous_temporary_title_id = Common::swap64(tid_entry->GetData<u64>(0)))
     ios.GetES()->DeleteTitleContent(previous_temporary_title_id);
@@ -168,18 +169,17 @@ bool UninstallTitle(u64 title_id)
 
 bool IsTitleInstalled(u64 title_id)
 {
-  const std::string content_dir =
-      Common::GetTitleContentPath(title_id, Common::FromWhichRoot::FROM_CONFIGURED_ROOT);
+  IOS::HLE::Kernel ios;
 
-  if (!File::IsDirectory(content_dir))
+  const auto files = ios.GetFS()->ReadDirectory(0, 0, Common::GetTitleContentPath(title_id));
+  if (!files)
     return false;
 
   // Since this isn't IOS and we only need a simple way to figure out if a title is installed,
   // we make the (reasonable) assumption that having more than just the TMD in the content
   // directory means that the title is installed.
-  const auto entries = File::ScanDirectoryTree(content_dir, false);
-  return std::any_of(entries.children.begin(), entries.children.end(),
-                     [](const auto& file) { return file.virtualName != "title.tmd"; });
+  return std::any_of(files->begin(), files->end(),
+                     [](const std::string& file) { return file != "title.tmd"; });
 }
 
 // Common functionality for system updaters.
@@ -751,8 +751,7 @@ static NANDCheckResult CheckNAND(IOS::HLE::Kernel& ios, bool repair)
   const auto es = ios.GetES();
 
   // Check for NANDs that were used with old Dolphin versions.
-  const std::string sys_replace_path =
-      Common::RootUserPath(Common::FROM_CONFIGURED_ROOT) + "/sys/replace";
+  const std::string sys_replace_path = File::GetUserPath(D_WIIROOT_IDX) + "/sys/replace";
   if (File::Exists(sys_replace_path))
   {
     ERROR_LOG(CORE, "CheckNAND: NAND was used with old versions, so it is likely to be damaged");
@@ -764,7 +763,7 @@ static NANDCheckResult CheckNAND(IOS::HLE::Kernel& ios, bool repair)
 
   for (const u64 title_id : es->GetInstalledTitles())
   {
-    const std::string title_dir = Common::GetTitlePath(title_id, Common::FROM_CONFIGURED_ROOT);
+    const std::string title_dir = File::GetUserPath(D_WIIROOT_IDX) + Common::GetTitlePath(title_id);
     const std::string content_dir = title_dir + "/content";
     const std::string data_dir = title_dir + "/data";
 
@@ -832,6 +831,7 @@ static NANDCheckResult CheckNAND(IOS::HLE::Kernel& ios, bool repair)
   return result;
 }
 
+// Check an extracted NAND for issues. (NAND images do not need to be checked.)
 NANDCheckResult CheckNAND(IOS::HLE::Kernel& ios)
 {
   return CheckNAND(ios, false);
