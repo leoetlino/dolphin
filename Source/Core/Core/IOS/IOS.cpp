@@ -366,7 +366,7 @@ void Kernel::AddDevice(std::unique_ptr<Device::Device> device)
 
 void Kernel::AddCoreDevices()
 {
-  m_fs = FS::MakeFileSystem();
+  m_fs = FS::MakeFileSystem(FS::Location::Session, m_iosc);
   ASSERT(m_fs);
 
   std::lock_guard<std::mutex> lock(m_device_map_mutex);

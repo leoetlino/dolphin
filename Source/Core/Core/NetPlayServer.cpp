@@ -1497,7 +1497,8 @@ bool NetPlayServer::SyncSaveData()
 
   if (wii_save)
   {
-    const auto configured_fs = IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured);
+    IOS::HLE::IOSC iosc;
+    const auto configured_fs = IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured, iosc);
 
     std::vector<std::pair<u64, WiiSave::StoragePointer>> saves;
     if (m_settings.m_SyncAllWiiSaves)

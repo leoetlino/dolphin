@@ -72,10 +72,10 @@ static bool CopyNandFile(FS::FileSystem* source_fs, const std::string& source_fi
   return true;
 }
 
-static void InitializeDeterministicWiiSaves(FS::FileSystem* session_fs)
+static void InitializeDeterministicWiiSaves(FS::FileSystem* session_fs, IOS::HLE::IOSC& iosc)
 {
   const u64 title_id = SConfig::GetInstance().GetTitleID();
-  const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured);
+  const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured, iosc);
   if (Movie::IsRecordingInput())
   {
     if (NetPlay::IsNetPlayRunning() && !SConfig::GetInstance().bCopyWiiSaveNetplay)
@@ -232,7 +232,7 @@ void InitializeWiiFileSystemContents()
   SysConf sysconf{fs};
   sysconf.Save();
 
-  InitializeDeterministicWiiSaves(fs.get());
+  InitializeDeterministicWiiSaves(fs.get(), IOS::HLE::GetIOS()->GetIOSC());
 }
 
 void CleanUpWiiFileSystemContents()
@@ -244,7 +244,7 @@ void CleanUpWiiFileSystemContents()
   }
 
   IOS::HLE::EmulationKernel* ios = IOS::HLE::GetIOS();
-  const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured);
+  const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured, ios->GetIOSC());
 
   // Copy back Mii data
   if (!CopyNandFile(ios->GetFS().get(), Common::GetMiiDatabasePath(), configured_fs.get(),

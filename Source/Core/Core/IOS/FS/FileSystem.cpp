@@ -6,16 +6,46 @@
 
 #include "Common/Assert.h"
 #include "Common/FileUtil.h"
+#include "Common/MsgHandler.h"
 #include "Core/IOS/Device.h"
 #include "Core/IOS/FS/HostBackend/FS.h"
+#include "Core/IOS/FS/ImageBackend/FS.h"
 
 namespace IOS::HLE::FS
 {
-std::unique_ptr<FileSystem> MakeFileSystem(Location location)
+std::unique_ptr<FileSystem> MakeFileSystem(Location location, IOSC& iosc)
 {
   const std::string nand_root =
       File::GetUserPath(location == Location::Session ? D_SESSION_WIIROOT_IDX : D_WIIROOT_IDX);
-  return std::make_unique<HostFileSystem>(nand_root);
+  const File::FileInfo nand_root_info{nand_root};
+
+  if (nand_root_info.IsDirectory())
+    return std::make_unique<HostFileSystem>(nand_root);
+
+  constexpr size_t NAND_SIZE = 0x21000000;
+  if (nand_root_info.GetSize() < NAND_SIZE)
+  {
+    if (nand_root_info.Exists())
+    {
+      if (!AskYesNoT("Your NAND is corrupted. Delete and recreate it?"))
+        return {};
+      File::Delete(nand_root);
+    }
+
+    if (!File::CreateFullPath(nand_root) || !File::AllocateFile(nand_root, NAND_SIZE))
+    {
+      PanicAlertT("Failed to create the NAND.");
+      return {};
+    }
+  }
+
+  auto fs = std::make_unique<NandFileSystem>(nand_root, iosc);
+  if (nand_root_info.GetSize() < NAND_SIZE && fs->Format(0) != ResultCode::Success)
+  {
+    PanicAlertT("Failed to format the NAND.");
+    return {};
+  }
+  return fs;
 }
 
 IOS::HLE::ReturnCode ConvertResult(ResultCode code)
