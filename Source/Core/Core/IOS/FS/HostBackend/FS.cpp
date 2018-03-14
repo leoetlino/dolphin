@@ -46,7 +46,6 @@ static u64 ComputeTotalFileSize(const File::FSTEntry& parent_entry)
 
 HostFileSystem::HostFileSystem(const std::string& root_path) : m_root_path{root_path}
 {
-  Init();
 }
 
 HostFileSystem::~HostFileSystem() = default;

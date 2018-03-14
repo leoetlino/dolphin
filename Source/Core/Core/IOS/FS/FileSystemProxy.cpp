@@ -37,6 +37,11 @@ constexpr size_t CLUSTER_DATA_SIZE = 0x4000;
 
 FS::FS(Kernel& ios, const std::string& device_name) : Device(ios, device_name)
 {
+  if (ios.GetFS()->Delete(0, 0, "/tmp") == ResultCode::Success)
+  {
+    ios.GetFS()->CreateDirectory(0, 0, "/tmp", 0,
+                                 {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite});
+  }
 }
 
 void FS::DoState(PointerWrap& p)

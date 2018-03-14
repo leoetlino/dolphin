@@ -25,8 +25,6 @@ NandFileSystem::NandFileSystem(const std::string& nand_path, IOSC& iosc)
   for (auto& cluster : superblock->fat)
     if (cluster == 0xffff)
       cluster = CLUSTER_UNUSED;
-
-  Init();
 }
 
 NandFileSystem::~NandFileSystem() = default;
