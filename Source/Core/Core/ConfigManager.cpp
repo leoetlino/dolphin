@@ -356,8 +356,6 @@ void SConfig::SaveJitDebugSettings(IniFile& ini)
 
 void SConfig::LoadSettings()
 {
-  Config::Load();
-
   INFO_LOG(BOOT, "Loading Settings from %s", File::GetUserPath(F_DOLPHINCONFIG_IDX).c_str());
   IniFile ini;
   ini.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
@@ -376,6 +374,8 @@ void SConfig::LoadSettings()
   LoadUSBPassthroughSettings(ini);
   LoadAutoUpdateSettings(ini);
   LoadJitDebugSettings(ini);
+
+  Config::Load();
 }
 
 void SConfig::LoadGeneralSettings(IniFile& ini)
