@@ -208,9 +208,12 @@ void HiresTexture::Prefetch()
     }
   }
   u32 stoptime = Common::Timer::GetTimeMs();
-  OSD::AddMessage(StringFromFormat("Custom Textures loaded, %.1f MB in %.1f s",
-                                   size_sum / (1024.0 * 1024.0), (stoptime - starttime) / 1000.0),
-                  10000);
+  if (!s_textureMap.empty())
+  {
+    OSD::AddMessage(StringFromFormat("Custom Textures loaded, %.1f MB in %.1f s",
+                                     size_sum / (1024.0 * 1024.0), (stoptime - starttime) / 1000.0),
+                    10000);
+  }
 }
 
 std::string HiresTexture::GenBaseName(const u8* texture, size_t texture_size, const u8* tlut,
