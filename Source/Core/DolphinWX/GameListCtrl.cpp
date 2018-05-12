@@ -988,7 +988,7 @@ void GameListCtrl::OnExportSave(wxCommandEvent& WXUNUSED(event))
 {
   const UICommon::GameFile* iso = GetSelectedISO();
   if (iso)
-    CWiiSaveCrypted::ExportWiiSave(iso->GetTitleID());
+    WiiSave::ExportWiiSave(iso->GetTitleID());
 }
 
 // Save this file as the default file
