@@ -269,6 +269,8 @@ private:
   KeyEntries m_key_entries;
   KeyEntry m_root_key_entry;
   ECCSignature m_console_signature{};
+  u32 m_ms_id = 3;
+  u32 m_ca_id = 2;
   u32 m_console_key_id = 0;
 };
 }  // namespace HLE
