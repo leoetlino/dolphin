@@ -32,6 +32,7 @@ USBHost::USBHost(Kernel& ios, const std::string& device_name) : Device(ios, devi
 #ifdef __LIBUSB__
   const int ret = libusb_init(&m_libusb_context);
   DEBUG_ASSERT_MSG(IOS_USB, ret == 0, "Failed to init libusb for USB passthrough.");
+  libusb_set_option(m_libusb_context, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_INFO);
 #endif
 }
 

@@ -32,11 +32,9 @@
 /* Enable global message logging */
 #define ENABLE_LOGGING 1
 
-/* Uncomment to start with debug message logging enabled */
-// #define ENABLE_DEBUG_LOGGING 1
+#define ENABLE_DEBUG_LOGGING 1
 
-/* Uncomment to enabling logging to system log */
-// #define USE_SYSTEM_LOGGING_FACILITY
+#define USE_SYSTEM_LOGGING_FACILITY 1
 
 /* type of second poll() argument */
 #define POLL_NFDS_TYPE unsigned int
