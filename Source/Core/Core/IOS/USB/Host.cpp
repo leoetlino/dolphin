@@ -46,10 +46,14 @@ USBHost::~USBHost()
 
 IPCCommandResult USBHost::Open(const OpenRequest& request)
 {
-  StartThreads();
-  // Force a device scan to complete, because some games (including Your Shape) only care
-  // about the initial device list (in the first GETDEVICECHANGE reply).
-  m_first_scan_complete_event.Wait();
+  if (!m_has_initialised)
+  {
+    StartThreads();
+    // Force a device scan to complete, because some games (including Your Shape) only care
+    // about the initial device list (in the first GETDEVICECHANGE reply).
+    m_first_scan_complete_event.Wait();
+    m_has_initialised = true;
+  }
   return GetDefaultReply(IPC_SUCCESS);
 }
 
