@@ -374,6 +374,8 @@ void LibusbDevice::TransferEndpoint::HandleTransfer(libusb_transfer* transfer,
     return_value = fn(cmd);
     break;
   case LIBUSB_TRANSFER_ERROR:
+    libusb_clear_halt(device->m_handle, transfer->endpoint);
+    [[fallthrough]];
   case LIBUSB_TRANSFER_CANCELLED:
   case LIBUSB_TRANSFER_TIMED_OUT:
   case LIBUSB_TRANSFER_OVERFLOW:
