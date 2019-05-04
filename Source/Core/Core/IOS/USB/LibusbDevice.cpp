@@ -192,7 +192,7 @@ int LibusbDevice::SubmitTransfer(std::unique_ptr<CtrlMessage> cmd)
   if (!m_device_attached)
     return LIBUSB_ERROR_NOT_FOUND;
 
-  DEBUG_LOG(IOS_USB,
+  INFO_LOG(IOS_USB,
             "[%04x:%04x %d] Control: bRequestType=%02x bRequest=%02x wValue=%04x"
             " wIndex=%04x wLength=%04x",
             m_vid, m_pid, m_active_interface, cmd->request_type, cmd->request, cmd->value,
@@ -252,7 +252,7 @@ int LibusbDevice::SubmitTransfer(std::unique_ptr<BulkMessage> cmd)
   if (!m_device_attached)
     return LIBUSB_ERROR_NOT_FOUND;
 
-  DEBUG_LOG(IOS_USB, "[%04x:%04x %d] Bulk: length=%04x endpoint=%02x", m_vid, m_pid,
+  INFO_LOG(IOS_USB, "[%04x:%04x %d] Bulk: length=%04x endpoint=%02x", m_vid, m_pid,
             m_active_interface, cmd->length, cmd->endpoint);
 
   libusb_transfer* transfer = libusb_alloc_transfer(0);
@@ -269,7 +269,7 @@ int LibusbDevice::SubmitTransfer(std::unique_ptr<IntrMessage> cmd)
   if (!m_device_attached)
     return LIBUSB_ERROR_NOT_FOUND;
 
-  DEBUG_LOG(IOS_USB, "[%04x:%04x %d] Interrupt: length=%04x endpoint=%02x", m_vid, m_pid,
+  INFO_LOG(IOS_USB, "[%04x:%04x %d] Interrupt: length=%04x endpoint=%02x", m_vid, m_pid,
             m_active_interface, cmd->length, cmd->endpoint);
 
   libusb_transfer* transfer = libusb_alloc_transfer(0);
@@ -286,7 +286,7 @@ int LibusbDevice::SubmitTransfer(std::unique_ptr<IsoMessage> cmd)
   if (!m_device_attached)
     return LIBUSB_ERROR_NOT_FOUND;
 
-  DEBUG_LOG(IOS_USB, "[%04x:%04x %d] Isochronous: length=%04x endpoint=%02x num_packets=%02x",
+  INFO_LOG(IOS_USB, "[%04x:%04x %d] Isochronous: length=%04x endpoint=%02x num_packets=%02x",
             m_vid, m_pid, m_active_interface, cmd->length, cmd->endpoint, cmd->num_packets);
 
   libusb_transfer* transfer = libusb_alloc_transfer(cmd->num_packets);
