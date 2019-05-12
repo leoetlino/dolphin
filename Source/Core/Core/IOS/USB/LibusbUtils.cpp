@@ -17,6 +17,9 @@ Context MakeContext()
   const int ret = libusb_init(&context);
   if (ret == LIBUSB_SUCCESS)
   {
+#ifdef _WIN32
+    libusb_set_option(context, LIBUSB_OPTION_USE_USBDK);
+#endif
     return {context, libusb_exit};
   }
 #endif
