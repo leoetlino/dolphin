@@ -188,6 +188,7 @@ add_library(core
   IOS/STM/STM.cpp
   IOS/USB/Common.cpp
   IOS/USB/Host.cpp
+  IOS/USB/LibusbUtils.cpp
   IOS/USB/OH0/OH0.cpp
   IOS/USB/OH0/OH0Device.cpp
   IOS/USB/USB_HID/HIDv4.cpp

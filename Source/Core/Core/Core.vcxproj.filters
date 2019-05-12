@@ -796,6 +796,9 @@
     <ClCompile Include="IOS\USB\LibusbDevice.cpp">
       <Filter>IOS\USB</Filter>
     </ClCompile>
+    <ClCompile Include="IOS\USB\LibusbUtils.cpp">
+      <Filter>IOS\USB</Filter>
+    </ClCompile>
     <ClCompile Include="IOS\USB\Host.cpp">
       <Filter>IOS\USB</Filter>
     </ClCompile>
@@ -1497,6 +1500,9 @@
       <Filter>IOS\USB</Filter>
     </ClInclude>
     <ClInclude Include="IOS\USB\LibusbDevice.h">
+      <Filter>IOS\USB</Filter>
+    </ClInclude>
+    <ClInclude Include="IOS\USB\LibusbUtils.h">
       <Filter>IOS\USB</Filter>
     </ClInclude>
     <ClInclude Include="IOS\USB\Host.h">

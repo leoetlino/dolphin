@@ -19,10 +19,10 @@
 #include "Core/IOS/IOS.h"
 #include "Core/IOS/USB/Bluetooth/BTBase.h"
 #include "Core/IOS/USB/Bluetooth/hci.h"
+#include "Core/IOS/USB/LibusbUtils.h"
 #include "Core/IOS/USB/USBV0.h"
 
 class PointerWrap;
-struct libusb_context;
 struct libusb_device;
 struct libusb_device_handle;
 struct libusb_transfer;
@@ -74,7 +74,7 @@ private:
 
   libusb_device* m_device = nullptr;
   libusb_device_handle* m_handle = nullptr;
-  libusb_context* m_libusb_context = nullptr;
+  LibusbUtils::Context m_libusb_context = LibusbUtils::MakeContext();
 
   Common::Flag m_thread_running;
   std::thread m_thread;

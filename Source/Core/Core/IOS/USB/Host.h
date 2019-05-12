@@ -20,9 +20,9 @@
 #include "Core/IOS/Device.h"
 #include "Core/IOS/IOS.h"
 #include "Core/IOS/USB/Common.h"
+#include "Core/IOS/USB/LibusbUtils.h"
 
 class PointerWrap;
-struct libusb_context;
 
 namespace IOS::HLE::Device
 {
@@ -68,7 +68,7 @@ private:
   void DispatchHooks(const DeviceChangeHooks& hooks);
 
 #ifdef __LIBUSB__
-  libusb_context* m_libusb_context = nullptr;
+  LibusbUtils::Context m_libusb_context = LibusbUtils::MakeContext();
 
   // Event thread for libusb
   Common::Flag m_event_thread_running;

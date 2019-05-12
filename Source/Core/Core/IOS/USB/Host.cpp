@@ -30,18 +30,11 @@ namespace IOS::HLE::Device
 USBHost::USBHost(Kernel& ios, const std::string& device_name) : Device(ios, device_name)
 {
 #ifdef __LIBUSB__
-  const int ret = libusb_init(&m_libusb_context);
-  DEBUG_ASSERT_MSG(IOS_USB, ret == 0, "Failed to init libusb for USB passthrough.");
+  ASSERT_MSG(IOS_USB, m_libusb_context, "Failed to init libusb for USB passthrough.");
 #endif
 }
 
-USBHost::~USBHost()
-{
-#ifdef __LIBUSB__
-  if (m_libusb_context)
-    libusb_exit(m_libusb_context);
-#endif
-}
+USBHost::~USBHost() = default;
 
 IPCCommandResult USBHost::Open(const OpenRequest& request)
 {
@@ -133,7 +126,7 @@ bool USBHost::AddNewDevices(std::set<u64>& new_devices, DeviceChangeHooks& hooks
   if (m_libusb_context)
   {
     libusb_device** list;
-    const ssize_t count = libusb_get_device_list(m_libusb_context, &list);
+    const ssize_t count = libusb_get_device_list(m_libusb_context.get(), &list);
     if (count < 0)
     {
       WARN_LOG(IOS_USB, "Failed to get device list: %s",
@@ -235,7 +228,7 @@ void USBHost::StartThreads()
         }
 
         static timeval tv = {0, 50000};
-        libusb_handle_events_timeout_completed(m_libusb_context, &tv, nullptr);
+        libusb_handle_events_timeout_completed(m_libusb_context.get(), &tv, nullptr);
       }
     });
   }
