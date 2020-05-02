@@ -33,6 +33,8 @@ namespace Core
 namespace FS = IOS::HLE::FS;
 
 static std::string s_temp_wii_root;
+static std::vector<WiiFsCallback> s_fs_init_callbacks;
+static std::vector<WiiFsCallback> s_fs_cleanup_callbacks;
 
 static bool CopyBackupFile(const std::string& path_from, const std::string& path_to)
 {
@@ -282,18 +284,30 @@ void InitializeWiiFileSystemContents()
   if (!CopySysmenuFilesToFS(fs.get(), File::GetSysDirectory() + WII_USER_DIR, ""))
     WARN_LOG(CORE, "Failed to copy initial System Menu files to the NAND");
 
-  if (s_temp_wii_root.empty())
-    return;
+  const WiiRootType type = s_temp_wii_root.empty() ? WiiRootType::Normal : WiiRootType::Temporary;
 
-  // Generate a SYSCONF with default settings for the temporary Wii NAND.
-  SysConf sysconf{fs};
-  sysconf.Save();
+  if (type == WiiRootType::Temporary)
+  {
+    // Generate a SYSCONF with default settings for the temporary Wii NAND.
+    SysConf sysconf{fs};
+    sysconf.Save();
 
-  InitializeDeterministicWiiSaves(fs.get());
+    InitializeDeterministicWiiSaves(fs.get());
+  }
+
+  for (const auto& callback : s_fs_init_callbacks)
+    callback(*fs, type);
+  s_fs_init_callbacks.clear();
 }
 
 void CleanUpWiiFileSystemContents()
 {
+  const WiiRootType type = s_temp_wii_root.empty() ? WiiRootType::Normal : WiiRootType::Temporary;
+
+  for (const auto& callback : s_fs_cleanup_callbacks)
+    callback(*IOS::HLE::GetIOS()->GetFS(), type);
+  s_fs_cleanup_callbacks.clear();
+
   if (s_temp_wii_root.empty() || !SConfig::GetInstance().bEnableMemcardSdWriting ||
       NetPlay::GetWiiSyncFS())
   {
@@ -330,4 +344,15 @@ void CleanUpWiiFileSystemContents()
     WiiSave::Copy(session_save.get(), user_save.get());
   }
 }
+
+void RunOnNextWiiFsInit(WiiFsCallback callback)
+{
+  s_fs_init_callbacks.emplace_back(std::move(callback));
+}
+
+void RunOnNextWiiFsCleanup(WiiFsCallback callback)
+{
+  s_fs_cleanup_callbacks.emplace_back(std::move(callback));
+}
+
 }  // namespace Core
