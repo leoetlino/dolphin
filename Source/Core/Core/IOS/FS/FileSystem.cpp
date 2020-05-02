@@ -52,13 +52,11 @@ bool CopyFile(FileSystem* source_fs, const std::string& source_file, FileSystem*
   if (last_slash != std::string::npos && last_slash > 0)
   {
     const std::string dir = dest_file.substr(0, last_slash);
-    dest_fs->CreateFullPath(0, 0, dir + '/', 0,
-                            {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite});
+    dest_fs->CreateFullPath(0, 0, dir + '/', 0, WideOpenModes);
   }
 
   auto source_handle = source_fs->OpenFile(0, 0, source_file, Mode::Read);
-  auto dest_handle = dest_fs->CreateAndOpenFile(
-      0, 0, source_file, {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite});
+  auto dest_handle = dest_fs->CreateAndOpenFile(0, 0, source_file, WideOpenModes);
   if (!source_handle || !dest_handle)
     return false;
 

@@ -41,16 +41,15 @@ struct DirectoryToCreate
   FS::Gid gid = PID_KERNEL;
 };
 
-constexpr FS::Modes public_modes{FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite};
 constexpr std::array<DirectoryToCreate, 9> s_directories_to_create = {{
     {"/sys", 0, {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None}},
     {"/ticket", 0, {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None}},
     {"/title", 0, {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::Read}},
     {"/shared1", 0, {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None}},
-    {"/shared2", 0, public_modes},
-    {"/tmp", 0, public_modes},
+    {"/shared2", 0, FS::WideOpenModes},
+    {"/tmp", 0, FS::WideOpenModes},
     {"/import", 0, {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::None}},
-    {"/meta", 0, public_modes, SYSMENU_UID, SYSMENU_GID},
+    {"/meta", 0, FS::WideOpenModes, SYSMENU_UID, SYSMENU_GID},
     {"/wfs", 0, {FS::Mode::ReadWrite, FS::Mode::None, FS::Mode::None}, PID_UNKNOWN, PID_UNKNOWN},
 }};
 

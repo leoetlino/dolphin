@@ -221,7 +221,7 @@ HostFileSystem::FstEntry* HostFileSystem::GetFstEntryForPath(const std::string& 
       INFO_LOG(IOS_FS, "Creating a default entry for %s", complete_path.c_str());
       entry = &entry->children.emplace_back();
       entry->name = component;
-      entry->data.modes = {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite};
+      entry->data.modes = WideOpenModes;
     }
   }
 

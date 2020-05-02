@@ -39,10 +39,7 @@ constexpr size_t CLUSTER_DATA_SIZE = 0x4000;
 FS::FS(Kernel& ios, const std::string& device_name) : Device(ios, device_name)
 {
   if (ios.GetFS()->Delete(PID_KERNEL, PID_KERNEL, "/tmp") == ResultCode::Success)
-  {
-    ios.GetFS()->CreateDirectory(PID_KERNEL, PID_KERNEL, "/tmp", 0,
-                                 {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite});
-  }
+    ios.GetFS()->CreateDirectory(PID_KERNEL, PID_KERNEL, "/tmp", 0, WideOpenModes);
 }
 
 void FS::DoState(PointerWrap& p)

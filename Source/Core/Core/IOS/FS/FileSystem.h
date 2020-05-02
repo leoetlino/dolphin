@@ -77,6 +77,9 @@ struct Modes
 {
   Mode owner, group, other;
 };
+
+constexpr Modes WideOpenModes{Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite};
+
 inline bool operator==(const Modes& lhs, const Modes& rhs)
 {
   const auto fields = [](const Modes& obj) { return std::tie(obj.owner, obj.group, obj.other); };

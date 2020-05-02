@@ -278,9 +278,8 @@ void Init(const BootParameters& boot)
 
       // FS won't write the save if the directory doesn't exist
       const std::string title_path = Common::GetTitleDataPath(title_id);
-      configured_fs->CreateFullPath(
-          IOS::PID_KERNEL, IOS::PID_KERNEL, title_path + '/', 0,
-          {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite});
+      configured_fs->CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL, title_path + '/', 0,
+                                    FS::WideOpenModes);
 
       const auto user_save = WiiSave::MakeNandStorage(configured_fs.get(), title_id);
 
