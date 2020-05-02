@@ -51,6 +51,7 @@
 #include "Core/IOS/IOS.h"
 #include "Core/IOS/Uids.h"
 #include "Core/NetPlayClient.h"  //for NetPlayUI
+#include "Core/WiiRoot.h"
 #include "DiscIO/Enums.h"
 #include "InputCommon/ControllerEmu/ControlGroup/Attachments.h"
 #include "InputCommon/GCPadStatus.h"
@@ -1206,7 +1207,7 @@ bool NetPlayServer::RequestStartGame()
 {
   bool start_now = true;
 
-  if (m_settings.m_SyncSaveData && m_players.size() > 1)
+  if (m_settings.m_SyncSaveData)
   {
     start_now = false;
     m_start_pending = true;
@@ -1458,7 +1459,7 @@ bool NetPlayServer::SyncSaveData()
         pac << sf::Uint64{0};
       }
 
-      SendChunkedToClients(std::move(pac), 1,
+      SendChunkedToClients(std::move(pac), 0,
                            fmt::format("Memory Card {} Synchronization", is_slot_a ? 'A' : 'B'));
     }
     else if (SConfig::GetInstance().m_EXIDevice[i] ==
@@ -1491,7 +1492,7 @@ bool NetPlayServer::SyncSaveData()
         pac << static_cast<u8>(0);
       }
 
-      SendChunkedToClients(std::move(pac), 1,
+      SendChunkedToClients(std::move(pac), 0,
                            fmt::format("GCI Folder {} Synchronization", is_slot_a ? 'A' : 'B'));
     }
   }
@@ -1556,10 +1557,7 @@ bool NetPlayServer::SyncSaveData()
         return false;
     }
 
-    // Set titles for host-side loading in WiiRoot
-    SetWiiSyncData(nullptr, titles);
-
-    SendChunkedToClients(std::move(pac), 1, "Wii Save Synchronization");
+    SendChunkedToClients(std::move(pac), 0, "Wii Save Synchronization");
   }
 
   return true;

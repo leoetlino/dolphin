@@ -4,11 +4,8 @@
 
 #include "Core/WiiRoot.h"
 
-#include <cinttypes>
 #include <string>
 #include <vector>
-
-#include <fmt/format.h>
 
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
@@ -18,14 +15,9 @@
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
 #include "Core/CommonTitles.h"
-#include "Core/ConfigManager.h"
-#include "Core/HW/WiiSave.h"
-#include "Core/IOS/ES/ES.h"
 #include "Core/IOS/FS/FileSystem.h"
 #include "Core/IOS/IOS.h"
 #include "Core/IOS/Uids.h"
-#include "Core/Movie.h"
-#include "Core/NetPlayClient.h"
 #include "Core/SysConf.h"
 
 namespace Core
@@ -68,54 +60,6 @@ static void RestoreFile(const std::string& path_in_nand)
 
   if (CopyBackupFile(backup_path, original_path))
     DeleteBackupFile(file_name);
-}
-
-static void InitializeDeterministicWiiSaves(FS::FileSystem* session_fs)
-{
-  const u64 title_id = SConfig::GetInstance().GetTitleID();
-  const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured);
-
-  if (NetPlay::IsNetPlayRunning() && SConfig::GetInstance().bCopyWiiSaveNetplay)
-  {
-    // Copy the current user's save to the Blank NAND
-    auto* sync_fs = NetPlay::GetWiiSyncFS();
-    auto& sync_titles = NetPlay::GetWiiSyncTitles();
-    if (sync_fs)
-    {
-      for (const u64 title : sync_titles)
-      {
-        WiiSave::Copy(sync_fs, session_fs, title);
-      }
-
-      // Copy Mii data
-      if (!FS::CopyFile(sync_fs, Common::GetMiiDatabasePath(), session_fs,
-                        Common::GetMiiDatabasePath()))
-      {
-        WARN_LOG(CORE, "Failed to copy Mii database to the NAND");
-      }
-    }
-    else
-    {
-      if (NetPlay::IsSyncingAllWiiSaves())
-      {
-        for (const u64 title : sync_titles)
-        {
-          WiiSave::Copy(configured_fs.get(), session_fs, title);
-        }
-      }
-      else
-      {
-        WiiSave::Copy(configured_fs.get(), session_fs, title_id);
-      }
-
-      // Copy Mii data
-      if (!FS::CopyFile(configured_fs.get(), Common::GetMiiDatabasePath(), session_fs,
-                        Common::GetMiiDatabasePath()))
-      {
-        WARN_LOG(CORE, "Failed to copy Mii database to the NAND");
-      }
-    }
-  }
 }
 
 void InitializeWiiRoot(bool use_temporary)
@@ -238,8 +182,6 @@ void InitializeWiiFileSystemContents()
     // Generate a SYSCONF with default settings for the temporary Wii NAND.
     SysConf sysconf{fs};
     sysconf.Save();
-
-    InitializeDeterministicWiiSaves(fs.get());
   }
 
   for (const auto& callback : s_fs_init_callbacks)

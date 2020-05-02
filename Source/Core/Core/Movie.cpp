@@ -259,8 +259,11 @@ void Init(const BootParameters& boot)
     if (type != Core::WiiRootType::Temporary)
       return;
 
-    if (!SConfig::GetInstance().bEnableMemcardSdWriting || NetPlay::GetWiiSyncFS())
+    if (!SConfig::GetInstance().bEnableMemcardSdWriting ||
+        (NetPlay::IsNetPlayRunning() && !NetPlay::GetNetSettings().m_IsHosting))
+    {
       return;
+    }
 
     IOS::HLE::EmulationKernel* ios = IOS::HLE::GetIOS();
     const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured);

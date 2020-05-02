@@ -53,6 +53,7 @@
 #include "Core/IOS/Uids.h"
 #include "Core/Movie.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/WiiRoot.h"
 #include "InputCommon/ControllerEmu/ControlGroup/Attachments.h"
 #include "InputCommon/GCAdapter.h"
 #include "InputCommon/InputConfig.h"
@@ -803,9 +804,6 @@ unsigned int NetPlayClient::OnData(sf::Packet& packet)
     {
     case SYNC_SAVE_DATA_NOTIFY:
     {
-      if (m_local_player->IsHost())
-        return 0;
-
       packet >> m_sync_save_data_count;
       m_sync_save_data_success_count = 0;
 
@@ -819,7 +817,10 @@ unsigned int NetPlayClient::OnData(sf::Packet& packet)
     case SYNC_SAVE_DATA_RAW:
     {
       if (m_local_player->IsHost())
+      {
+        SyncSaveDataResponse(true);
         return 0;
+      }
 
       bool is_slot_a;
       std::string region;
@@ -843,7 +844,10 @@ unsigned int NetPlayClient::OnData(sf::Packet& packet)
     case SYNC_SAVE_DATA_GCI:
     {
       if (m_local_player->IsHost())
+      {
+        SyncSaveDataResponse(true);
         return 0;
+      }
 
       bool is_slot_a;
       u8 file_count;
@@ -878,81 +882,65 @@ unsigned int NetPlayClient::OnData(sf::Packet& packet)
 
     case SYNC_SAVE_DATA_WII:
     {
-      if (m_local_player->IsHost())
-        return 0;
+      namespace FS = IOS::HLE::FS;
+      File::ScopedTemporaryDirectory temp_dir;
 
-      const std::string path = File::GetUserPath(D_USER_IDX) + "Wii" GC_MEMCARD_NETPLAY DIR_SEP;
-
-      if (File::Exists(path) && !File::DeleteDirRecursively(path))
+      bool has_mii_data;
+      packet >> has_mii_data;
+      if (has_mii_data)
       {
-        PanicAlertT("Failed to reset NetPlay NAND folder. Verify your write permissions.");
-        SyncSaveDataResponse(false);
-        return 0;
-      }
-
-      IOS::HLE::IOSC iosc;
-      auto temp_fs = std::make_unique<IOS::HLE::FS::HostFileSystem>(path);
-      std::vector<u64> titles;
-
-      const IOS::HLE::FS::Modes fs_modes = {IOS::HLE::FS::Mode::ReadWrite,
-                                            IOS::HLE::FS::Mode::ReadWrite,
-                                            IOS::HLE::FS::Mode::ReadWrite};
-
-      // Read the Mii data
-      bool mii_data;
-      packet >> mii_data;
-      if (mii_data)
-      {
-        auto buffer = DecompressPacketIntoBuffer(packet);
-
-        temp_fs->CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL, "/shared2/menu/FaceLib/", 0,
-                                fs_modes);
-        auto file = temp_fs->CreateAndOpenFile(IOS::PID_KERNEL, IOS::PID_KERNEL,
-                                               Common::GetMiiDatabasePath(), fs_modes);
-
-        if (!buffer || !file || !file->Write(buffer->data(), buffer->size()))
-        {
-          PanicAlertT("Failed to write Mii data.");
-          SyncSaveDataResponse(false);
-          return 0;
-        }
+        Core::RunOnNextWiiFsInit([mii_data = DecompressPacketIntoBuffer(packet)](
+                                     FS::FileSystem& fs, Core::WiiRootType type) {
+          fs.CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL, Common::GetMiiDatabasePath(), 0,
+                            FS::WideOpenModes);
+          auto file = fs.CreateAndOpenFile(IOS::PID_KERNEL, IOS::PID_KERNEL,
+                                           Common::GetMiiDatabasePath(), FS::WideOpenModes);
+          if (!mii_data || !file || !file->Write(mii_data->data(), mii_data->size()))
+            PanicAlertT("Failed to write Mii data.");
+        });
       }
 
       // Read the saves
+      std::vector<u64> titles;
       u32 save_count;
       packet >> save_count;
       for (u32 n = 0; n < save_count; n++)
       {
         u64 title_id = Common::PacketReadU64(packet);
         titles.push_back(title_id);
-        // XXX: This is a hack. Title data directories are supposed to be created by ES and owned by
-        // the title itself, not by root.
-        temp_fs->CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL,
-                                Common::GetTitleDataPath(title_id) + '/', 0, fs_modes);
 
         bool exists;
         packet >> exists;
         if (!exists)
           continue;
 
-        const std::string temp_save_path = path + "/tmp_save.bin";
-        if (!DecompressPacketIntoFile(packet, temp_save_path))
+        const auto save_path = fmt::format("{}/save_{:016x}.bin", temp_dir.GetPath(), title_id);
+        if (!DecompressPacketIntoFile(packet, save_path))
         {
-          SyncSaveDataResponse(false);
-          return 0;
-        }
-
-        if (!WiiSave::Copy(&*WiiSave::MakeDataBinStorage(&iosc, temp_save_path, "rb",
-                                                         WiiSave::DataBinType::Unencrypted),
-                           &*WiiSave::MakeNandStorage(temp_fs.get(), title_id)))
-        {
-          PanicAlertT("Failed to write Wii save.");
           SyncSaveDataResponse(false);
           return 0;
         }
       }
 
-      SetWiiSyncData(std::move(temp_fs), titles);
+      Core::RunOnNextWiiFsInit(
+          [temp_dir_path = temp_dir.Release(), titles](FS::FileSystem& fs, Core::WiiRootType type) {
+            auto& iosc = IOS::HLE::GetIOS()->GetIOSC();
+            for (const u64 title_id : titles)
+            {
+              const auto save_path = fmt::format("{}/save_{:016x}.bin", temp_dir_path, title_id);
+              INFO_LOG(CORE, "[Wii save sync] Importing %s", save_path.c_str());
+              // XXX: This is a hack. Title data directories are supposed to be created by ES and
+              // owned by the title itself, not by root.
+              fs.CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL,
+                                Common::GetTitleDataPath(title_id) + '/', 0, FS::WideOpenModes);
+              WiiSave::Copy(&*WiiSave::MakeDataBinStorage(&iosc, save_path, "rb",
+                                                          WiiSave::DataBinType::Unencrypted),
+                            &*WiiSave::MakeNandStorage(&fs, title_id));
+            }
+            // std::function cannot store move-only functions, so we have to clean up manually...
+            File::DeleteDirRecursively(temp_dir_path);
+          });
+
       SyncSaveDataResponse(true);
     }
     break;
@@ -2080,8 +2068,6 @@ bool NetPlayClient::StopGame()
   // stop game
   m_dialog->StopGame();
 
-  ClearWiiSyncData();
-
   return true;
 }
 
@@ -2310,33 +2296,6 @@ const NetSettings& GetNetSettings()
   return netplay_client->GetNetSettings();
 }
 
-IOS::HLE::FS::FileSystem* GetWiiSyncFS()
-{
-  return s_wii_sync_fs.get();
-}
-
-const std::vector<u64>& GetWiiSyncTitles()
-{
-  return s_wii_sync_titles;
-}
-
-void SetWiiSyncData(std::unique_ptr<IOS::HLE::FS::FileSystem> fs, const std::vector<u64>& titles)
-{
-  s_wii_sync_fs = std::move(fs);
-  s_wii_sync_titles.insert(s_wii_sync_titles.end(), titles.begin(), titles.end());
-}
-
-void ClearWiiSyncData()
-{
-  // We're just assuming it will always be here because it is
-  const std::string path = File::GetUserPath(D_USER_IDX) + "Wii" GC_MEMCARD_NETPLAY DIR_SEP;
-  if (File::Exists(path))
-    File::DeleteDirRecursively(path);
-
-  s_wii_sync_fs.reset();
-  s_wii_sync_titles.clear();
-}
-
 void SetSIPollBatching(bool state)
 {
   s_si_poll_batching = state;
@@ -2346,16 +2305,6 @@ void SendPowerButtonEvent()
 {
   ASSERT(IsNetPlayRunning());
   netplay_client->SendPowerButtonEvent();
-}
-
-bool IsSyncingAllWiiSaves()
-{
-  std::lock_guard<std::mutex> lk(crit_netplay_client);
-
-  if (netplay_client)
-    return netplay_client->GetNetSettings().m_SyncAllWiiSaves;
-
-  return false;
 }
 
 void SetupWiimotes()
