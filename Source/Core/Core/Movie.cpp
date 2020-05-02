@@ -57,10 +57,16 @@
 #include "Core/HW/WiimoteEmu/Extension/Nunchuk.h"
 #include "Core/HW/WiimoteEmu/ExtensionPort.h"
 
+#include "Core/HW/WiiSave.h"
+#include "Core/IOS/ES/ES.h"
+#include "Core/IOS/FS/FileSystem.h"
+#include "Core/IOS/IOS.h"
 #include "Core/IOS/USB/Bluetooth/BTEmu.h"
 #include "Core/IOS/USB/Bluetooth/WiimoteDevice.h"
+#include "Core/IOS/Uids.h"
 #include "Core/NetPlayProto.h"
 #include "Core/State.h"
+#include "Core/WiiRoot.h"
 
 #include "DiscIO/Enums.h"
 
@@ -214,6 +220,80 @@ static void GetMD5();
 // NOTE: EmuThread
 void Init(const BootParameters& boot)
 {
+  namespace FS = IOS::HLE::FS;
+
+  Core::RunOnNextWiiFsInit([](FS::FileSystem& fs, Core::WiiRootType type) {
+    if (type != Core::WiiRootType::Temporary)
+      return;
+
+    const u64 title_id = SConfig::GetInstance().GetTitleID();
+    const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured);
+
+    if (IsRecordingInput())
+    {
+      if (NetPlay::IsNetPlayRunning() && !SConfig::GetInstance().bCopyWiiSaveNetplay)
+      {
+        SetClearSave(true);
+      }
+      else
+      {
+        // TODO: Check for the actual save data
+        const std::string path = Common::GetTitleDataPath(title_id) + "/banner.bin";
+        SetClearSave(!configured_fs->GetMetadata(IOS::PID_KERNEL, IOS::PID_KERNEL, path));
+      }
+    }
+
+    if (IsMovieActive() && !IsStartingFromClearSave())
+    {
+      WiiSave::Copy(configured_fs.get(), &fs, title_id);
+
+      if (!FS::CopyFile(configured_fs.get(), Common::GetMiiDatabasePath(), &fs,
+                        Common::GetMiiDatabasePath()))
+      {
+        WARN_LOG(CORE, "Failed to copy Mii database to the NAND");
+      }
+    }
+  });
+
+  Core::RunOnNextWiiFsCleanup([](FS::FileSystem& fs, Core::WiiRootType type) {
+    if (type != Core::WiiRootType::Temporary)
+      return;
+
+    if (!SConfig::GetInstance().bEnableMemcardSdWriting || NetPlay::GetWiiSyncFS())
+      return;
+
+    IOS::HLE::EmulationKernel* ios = IOS::HLE::GetIOS();
+    const auto configured_fs = FS::MakeFileSystem(FS::Location::Configured);
+
+    // Copy back Mii data
+    if (!FS::CopyFile(ios->GetFS().get(), Common::GetMiiDatabasePath(), configured_fs.get(),
+                      Common::GetMiiDatabasePath()))
+    {
+      WARN_LOG(CORE, "Failed to copy Mii database to the NAND");
+    }
+
+    for (const u64 title_id : ios->GetES()->GetInstalledTitles())
+    {
+      const auto session_save = WiiSave::MakeNandStorage(ios->GetFS().get(), title_id);
+
+      // FS won't write the save if the directory doesn't exist
+      const std::string title_path = Common::GetTitleDataPath(title_id);
+      configured_fs->CreateFullPath(
+          IOS::PID_KERNEL, IOS::PID_KERNEL, title_path + '/', 0,
+          {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite});
+
+      const auto user_save = WiiSave::MakeNandStorage(configured_fs.get(), title_id);
+
+      const std::string backup_path =
+          fmt::format("{}/{:016x}.bin", File::GetUserPath(D_BACKUP_IDX), title_id);
+      const auto backup_save = WiiSave::MakeDataBinStorage(&ios->GetIOSC(), backup_path, "w+b");
+
+      // Backup the existing save just in case it's still needed.
+      WiiSave::Copy(user_save.get(), backup_save.get());
+      WiiSave::Copy(session_save.get(), user_save.get());
+    }
+  });
+
   if (std::holds_alternative<BootParameters::Disc>(boot.parameters))
     s_current_file_name = std::get<BootParameters::Disc>(boot.parameters).path;
   else
