@@ -481,6 +481,17 @@ bool Copy(Storage* source, Storage* dest)
          Copy("files", source, &Storage::ReadFiles, dest, &Storage::WriteFiles);
 }
 
+bool Copy(FS::FileSystem* source, FS::FileSystem* dest, const u64 title_id)
+{
+  // XXX: This is a hack. Title data directories are supposed to be created by ES and owned by
+  // the title itself, not by root.
+  dest->CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL, Common::GetTitleDataPath(title_id) + '/',
+                       0, {FS::Mode::ReadWrite, FS::Mode::ReadWrite, FS::Mode::ReadWrite});
+  const auto source_save = WiiSave::MakeNandStorage(source, title_id);
+  const auto dest_save = WiiSave::MakeNandStorage(dest, title_id);
+  return Copy(source_save.get(), dest_save.get());
+}
+
 bool Import(const std::string& data_bin_path, std::function<bool()> can_overwrite)
 {
   IOS::HLE::Kernel ios;

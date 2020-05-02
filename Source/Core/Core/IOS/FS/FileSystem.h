@@ -274,5 +274,9 @@ std::unique_ptr<FileSystem> MakeFileSystem(Location location = Location::Session
 /// Convert a FS result code to an IOS error code.
 IOS::HLE::ReturnCode ConvertResult(ResultCode code);
 
+/// Copy a file between two filesystems without preserving permissions.
+bool CopyFile(FileSystem* source_fs, const std::string& source_file, FileSystem* dest_fs,
+              const std::string& dest_file);
+
 }  // namespace FS
 }  // namespace IOS::HLE

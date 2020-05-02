@@ -45,6 +45,32 @@ IOS::HLE::ReturnCode ConvertResult(ResultCode code)
   return static_cast<ReturnCode>(-(static_cast<s32>(code) + 100));
 }
 
+bool CopyFile(FileSystem* source_fs, const std::string& source_file, FileSystem* dest_fs,
+              const std::string& dest_file)
+{
+  const auto last_slash = dest_file.find_last_of('/');
+  if (last_slash != std::string::npos && last_slash > 0)
+  {
+    const std::string dir = dest_file.substr(0, last_slash);
+    dest_fs->CreateFullPath(0, 0, dir + '/', 0,
+                            {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite});
+  }
+
+  auto source_handle = source_fs->OpenFile(0, 0, source_file, Mode::Read);
+  auto dest_handle = dest_fs->CreateAndOpenFile(
+      0, 0, source_file, {Mode::ReadWrite, Mode::ReadWrite, Mode::ReadWrite});
+  if (!source_handle || !dest_handle)
+    return false;
+
+  std::vector<u8> buffer(source_handle->GetStatus()->size);
+  if (!source_handle->Read(buffer.data(), buffer.size()))
+    return false;
+  if (!dest_handle->Write(buffer.data(), buffer.size()))
+    return false;
+
+  return true;
+}
+
 FileHandle::FileHandle(FileSystem* fs, Fd fd) : m_fs{fs}, m_fd{fd}
 {
 }

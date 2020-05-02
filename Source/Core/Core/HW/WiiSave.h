@@ -41,6 +41,8 @@ StoragePointer MakeDataBinStorage(IOS::HLE::IOSC* iosc, const std::string& path,
 
 bool Copy(Storage* source, Storage* destination);
 
+bool Copy(IOS::HLE::FS::FileSystem* source, IOS::HLE::FS::FileSystem* dest, u64 title_id);
+
 /// Import a save into the NAND from a .bin file.
 bool Import(const std::string& data_bin_path, std::function<bool()> can_overwrite);
 /// Export a save to a .bin file.
