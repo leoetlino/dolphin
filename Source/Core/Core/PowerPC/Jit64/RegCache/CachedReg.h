@@ -52,11 +52,11 @@ public:
       if (location->IsImm())
         return LocationType::SpeculativeImmediate;
 
-      ASSERT(location == default_location);
+      DEBUG_ASSERT(location == default_location);
       return LocationType::Default;
     }
 
-    ASSERT(location->IsImm() || location->IsSimpleReg());
+    DEBUG_ASSERT(location->IsImm() || location->IsSimpleReg());
     return location->IsImm() ? LocationType::Immediate : LocationType::Bound;
   }
 
