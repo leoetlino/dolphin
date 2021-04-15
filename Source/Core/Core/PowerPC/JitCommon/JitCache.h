@@ -14,6 +14,9 @@
 #include <type_traits>
 #include <vector>
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
+
 #include "Common/CommonTypes.h"
 
 class JitBase;
@@ -182,7 +185,7 @@ private:
 
   // links_to hold all exit points of all valid blocks in a reverse way.
   // It is used to query all blocks which links to an address.
-  std::multimap<u32, JitBlock*> links_to;  // destination_PC -> number
+  absl::flat_hash_map<u32, absl::flat_hash_set<JitBlock*>> links_to;  // destination_PC -> number
 
   // Map indexed by the physical address of the entry point.
   // This is used to query the block based on the current PC in a slow way.
@@ -192,7 +195,7 @@ private:
   // This is used for invalidation of memory regions. The range is grouped
   // in macro blocks of each 0x100 bytes.
   static constexpr u32 BLOCK_RANGE_MAP_ELEMENTS = 0x100;
-  std::map<u32, std::set<JitBlock*>> block_range_map;
+  std::map<u32, absl::flat_hash_set<JitBlock*>> block_range_map;
 
   // This bitsets shows which cachelines overlap with any blocks.
   // It is used to provide a fast way to query if no icache invalidation is needed.

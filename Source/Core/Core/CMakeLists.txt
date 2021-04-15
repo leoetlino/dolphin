@@ -557,6 +557,8 @@ endif()
 
 target_link_libraries(core
 PUBLIC
+	absl::flat_hash_map
+	absl::flat_hash_set
   audiocommon
   common
   cubeb
