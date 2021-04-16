@@ -3,3 +3,6 @@
 	url = https://github.com/dolphin-emu/ext-win-qt.git
 	branch = master
 	shallow = true
+[submodule "Externals/abseil"]
+	path = Externals/abseil
+	url = https://github.com/abseil/abseil-cpp

@@ -531,6 +531,8 @@ endif()
 #   - place the CMakeLists.txt in the first-level subdirectory, e.g.
 #     Externals/zlib/CMakeLists.txt (that is: NOT in some Src/ subdirectory)
 #
+add_subdirectory(Externals/abseil)
+
 if (_M_X86)
   add_subdirectory(Externals/Bochs_disasm)
 endif()
