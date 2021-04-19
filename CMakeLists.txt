@@ -252,6 +252,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
   # Temporarily disable warnings to enable /Zc:preprocessor compatibility with WinSDK headers.
   add_compile_options(
     /wd5105 # macro expansion producing 'defined' has undefined behavior
+    /wd4458 # declaration hides class member
   )
 
   string(APPEND CMAKE_EXE_LINKER_FLAGS " /NXCOMPAT")
