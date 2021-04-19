@@ -246,6 +246,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
   add_compile_options(/experimental:newLambdaProcessor)
   # Fix various other non-conformant behaviors
   add_compile_options(/Zc:externConstexpr,lambda,preprocessor)
+  # Report an accurate value in __cplusplus for newer C++ standard versions
+  add_compile_options(/Zc:__cplusplus)
 
   # Temporarily disable warnings to enable /Zc:preprocessor compatibility with WinSDK headers.
   add_compile_options(
